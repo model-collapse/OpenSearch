@@ -243,4 +243,34 @@ public class SidecarAwareStoredFieldsTests extends OpenSearchTestCase {
         assertEquals(99, resultMap.get("b"));
         assertEquals(3, resultMap.get("c"));
     }
+
+    public void testNonJsonSourceThrowsOnOverlay() {
+        // If _source is not valid JSON, overlaySource should throw
+        byte[] nonJsonSource = "this is not json".getBytes(StandardCharsets.UTF_8);
+        Map<String, Object> overlay = new HashMap<>();
+        overlay.put("key", "value");
+
+        expectThrows(Exception.class, () -> SidecarAwareStoredFields.overlaySource(nonJsonSource, overlay));
+    }
+
+    public void testSidecarProviderThrowingPropagates() throws IOException {
+        // If the sidecar provider throws IOException, it should propagate
+        StoredFields storedFields = new SidecarAwareStoredFields(
+            dirReader.leaves().get(0).reader().storedFields(),
+            docId -> { throw new RuntimeException("simulated failure"); }
+        );
+
+        StoredFieldVisitor visitor = new StoredFieldVisitor() {
+            @Override
+            public StoredFieldVisitor.Status needsField(FieldInfo fieldInfo) {
+                return fieldInfo.name.equals("_source") ? Status.YES : Status.NO;
+            }
+
+            @Override
+            public void binaryField(FieldInfo fieldInfo, byte[] value) {
+            }
+        };
+
+        expectThrows(RuntimeException.class, () -> storedFields.document(0, visitor));
+    }
 }

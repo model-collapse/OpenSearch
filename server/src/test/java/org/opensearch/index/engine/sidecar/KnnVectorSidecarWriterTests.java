@@ -8,6 +8,7 @@
 
 package org.opensearch.index.engine.sidecar;
 
+import org.apache.lucene.index.VectorSimilarityFunction;
 import org.opensearch.test.OpenSearchTestCase;
 
 import java.nio.file.Path;
@@ -23,7 +24,7 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
             writer.addVector(42, vector);
             writer.addVector(100, vector);
 
-            KnnVectorSidecarWriter.SidecarWriteResult result = writer.flush();
+            SidecarWriter.SidecarWriteResult result = writer.flush();
 
             assertNotNull(result);
             assertTrue(result.files().size() > 0);
@@ -51,7 +52,7 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
     public void testEmptyWriterFlushReturnsNull() throws Exception {
         Path tmpDir = createTempDir();
         try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 128, 1)) {
-            KnnVectorSidecarWriter.SidecarWriteResult result = writer.flush();
+            SidecarWriter.SidecarWriteResult result = writer.flush();
             assertNull(result);
         }
     }
@@ -83,7 +84,7 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
                 writer.addVector(i * 10, vector);
             }
 
-            KnnVectorSidecarWriter.SidecarWriteResult result = writer.flush();
+            SidecarWriter.SidecarWriteResult result = writer.flush();
             assertNotNull(result);
             assertEquals(100, result.numDocs());
             assertEquals(100, result.bitmap().cardinality());
@@ -102,7 +103,7 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
             float[] v = new float[32];
             for (int i = 0; i < 32; i++) v[i] = randomFloat() + 0.01f;
             writer.addVector(0, v);
-            KnnVectorSidecarWriter.SidecarWriteResult result = writer.flush();
+            SidecarWriter.SidecarWriteResult result = writer.flush();
             assertEquals(42, result.generation());
         }
     }
@@ -118,5 +119,49 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
             writer.addVector(10, v);
             assertEquals(2, writer.docsAdded());
         }
+    }
+
+    public void testCustomSimilarityFunction() throws Exception {
+        Path tmpDir = createTempDir();
+        try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(
+                tmpDir, 32, 1, VectorSimilarityFunction.DOT_PRODUCT)) {
+            float[] v = new float[32];
+            for (int i = 0; i < 32; i++) v[i] = randomFloat() + 0.01f;
+            writer.write(0, v);
+            SidecarWriter.SidecarWriteResult result = writer.flush();
+            assertNotNull(result);
+            assertEquals(1, result.numDocs());
+        }
+    }
+
+    public void testDocsWrittenDelegatesToDocsAdded() throws Exception {
+        Path tmpDir = createTempDir();
+        try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 16, 1)) {
+            assertEquals(0, writer.docsWritten());
+            float[] v = new float[16];
+            for (int i = 0; i < 16; i++) v[i] = randomFloat() + 0.01f;
+            writer.write(5, v);
+            assertEquals(1, writer.docsWritten());
+            assertEquals(writer.docsAdded(), writer.docsWritten());
+        }
+    }
+
+    public void testNegativeDocIdThrows() throws Exception {
+        Path tmpDir = createTempDir();
+        try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 32, 1)) {
+            float[] v = new float[32];
+            for (int i = 0; i < 32; i++) v[i] = randomFloat() + 0.01f;
+            expectThrows(IllegalArgumentException.class, () -> writer.addVector(-1, v));
+        }
+    }
+
+    public void testCloseWithoutFlush() throws Exception {
+        Path tmpDir = createTempDir();
+        KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 32, 1);
+        float[] v = new float[32];
+        for (int i = 0; i < 32; i++) v[i] = randomFloat() + 0.01f;
+        writer.addVector(0, v);
+        // Close without flushing — should not throw
+        writer.close();
     }
 }

@@ -144,6 +144,7 @@ public class DataFormatAwareEngine implements Indexer {
 
     private final IndexingExecutionEngine indexingExecutionEngine;
     private final IndexingStrategyPlanner indexingStrategyPlanner;
+    private final LiveVersionMap versionMap;
     private final LockablePool<DefaultLockableHolder<Writer<?>>> writerPool;
     private final AtomicLong writerGenerationCounter;
 
@@ -362,10 +363,11 @@ public class DataFormatAwareEngine implements Indexer {
 
             this.lastRefreshedCheckpointListener = new LastRefreshedCheckpointListener(localCheckpointTracker);
             this.refreshListeners.add(this.lastRefreshedCheckpointListener);
+            this.versionMap = new LiveVersionMap();
             this.indexingStrategyPlanner = new IndexingStrategyPlanner(
                 engineConfig.getIndexSettings(),
                 engineConfig.getShardId(),
-                new LiveVersionMap(),
+                this.versionMap,
                 maxUnsafeAutoIdTimestamp::get,
                 () -> 0L,
                 localCheckpointTracker::getProcessedCheckpoint,
@@ -521,7 +523,10 @@ public class DataFormatAwareEngine implements Indexer {
         final boolean doThrottle = index.origin().isRecovery() == false;
         try (ReleasableLock ignored = readLock.acquire()) {
             ensureOpen();
-            try (Releasable indexThrottle = doThrottle ? throttle.acquireThrottle() : () -> {}) {
+            try (
+                Releasable uidLock = versionMap.acquireLock(index.uid().bytes());
+                Releasable indexThrottle = doThrottle ? throttle.acquireThrottle() : () -> {}
+            ) {
                 lastWriteNanos = index.startTime();
                 final IndexingStrategy plan;
                 if (index.origin() == Engine.Operation.Origin.PRIMARY) {

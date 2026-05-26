@@ -312,6 +312,8 @@ import org.opensearch.action.termvectors.TransportShardMultiTermsVectorAction;
 import org.opensearch.action.termvectors.TransportTermVectorsAction;
 import org.opensearch.action.update.TransportUpdateAction;
 import org.opensearch.action.update.UpdateAction;
+import org.opensearch.action.update.fields.TransportUpdateFieldsAction;
+import org.opensearch.action.update.fields.UpdateFieldsAction;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.common.NamedRegistry;
@@ -483,6 +485,7 @@ import org.opensearch.rest.action.document.RestMultiGetAction;
 import org.opensearch.rest.action.document.RestMultiTermVectorsAction;
 import org.opensearch.rest.action.document.RestTermVectorsAction;
 import org.opensearch.rest.action.document.RestUpdateAction;
+import org.opensearch.rest.action.document.RestUpdateFieldsAction;
 import org.opensearch.rest.action.ingest.RestDeletePipelineAction;
 import org.opensearch.rest.action.ingest.RestGetPipelineAction;
 import org.opensearch.rest.action.ingest.RestPutPipelineAction;
@@ -763,6 +766,7 @@ public class ActionModule extends AbstractModule {
         );
         actions.register(DeleteAction.INSTANCE, TransportDeleteAction.class);
         actions.register(UpdateAction.INSTANCE, TransportUpdateAction.class);
+        actions.register(UpdateFieldsAction.INSTANCE, TransportUpdateFieldsAction.class);
         actions.register(MultiGetAction.INSTANCE, TransportMultiGetAction.class, TransportShardMultiGetAction.class);
         actions.register(BulkAction.INSTANCE, TransportBulkAction.class, TransportShardBulkAction.class);
         actions.register(SearchAction.INSTANCE, TransportSearchAction.class);
@@ -986,6 +990,7 @@ public class ActionModule extends AbstractModule {
         registerHandler.accept(new RestBulkAction(settings));
         registerHandler.accept(new RestBulkStreamingAction(settings));
         registerHandler.accept(new RestUpdateAction());
+        registerHandler.accept(new RestUpdateFieldsAction());
 
         registerHandler.accept(new RestSearchAction(clusterSettings));
         registerHandler.accept(new RestSearchScrollAction());

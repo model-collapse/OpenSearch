@@ -129,6 +129,7 @@ import org.opensearch.index.cache.IndexCache;
 import org.opensearch.index.cache.bitset.ShardBitsetFilterCache;
 import org.opensearch.index.cache.request.ShardRequestCache;
 import org.opensearch.index.codec.CodecService;
+import org.opensearch.index.engine.CatalogSnapshotIndexCommit;
 import org.opensearch.index.engine.CommitStats;
 import org.opensearch.index.engine.DataFormatAwareEngine;
 import org.opensearch.index.engine.Engine;
@@ -1811,7 +1812,15 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         final IndexShardState state = this.state; // one time volatile read
         // we allow snapshot on closed index shard, since we want to do one after we close the shard and before we close the engine
         if (state == IndexShardState.STARTED || state == IndexShardState.CLOSED) {
-            return applyOnEngine(getIndexer(), engine -> engine.acquireLastIndexCommit(flushFirst));
+            Indexer indexer = getIndexer();
+            if (indexer instanceof DataFormatAwareEngine dfaEngine) {
+                GatedCloseable<CatalogSnapshot> csRef = dfaEngine.acquireLastCommittedSnapshot(flushFirst);
+                CatalogSnapshot cs = csRef.get();
+                long gen = cs.getGeneration();
+                IndexCommit composite = new CatalogSnapshotIndexCommit(cs, store.directory(), gen);
+                return new GatedCloseable<>(composite, csRef::close);
+            }
+            return applyOnEngine(indexer, engine -> engine.acquireLastIndexCommit(flushFirst));
         } else {
             throw new IllegalIndexShardStateException(shardId, state, "snapshot is not allowed");
         }

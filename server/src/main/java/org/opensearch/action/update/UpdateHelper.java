@@ -54,6 +54,7 @@ import org.opensearch.index.engine.DocumentMissingException;
 import org.opensearch.index.engine.DocumentSourceMissingException;
 import org.opensearch.index.get.GetResult;
 import org.opensearch.index.mapper.RoutingFieldMapper;
+import org.opensearch.index.mapper.extrasource.ExtraFieldValues;
 import org.opensearch.index.shard.IndexShard;
 import org.opensearch.script.Script;
 import org.opensearch.script.ScriptService;
@@ -295,6 +296,7 @@ public class UpdateHelper {
                     .id(request.id())
                     .routing(routing)
                     .source(updatedSourceAsMap, updateSourceContentType)
+                    .extraFieldValues(currentRequest != null ? currentRequest.extraFieldValues() : ExtraFieldValues.EMPTY)
                     .setIfSeqNo(getResult.getSeqNo())
                     .setIfPrimaryTerm(getResult.getPrimaryTerm())
                     .waitForActiveShards(request.waitForActiveShards())

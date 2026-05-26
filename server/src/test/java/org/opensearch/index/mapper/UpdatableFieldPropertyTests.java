@@ -8,9 +8,9 @@
 
 package org.opensearch.index.mapper;
 
-import org.opensearch.common.xcontent.XContentFactory;
-import org.opensearch.core.xcontent.ToXContent;
-import org.opensearch.core.xcontent.XContentBuilder;
+import org.opensearch.core.common.Strings;
+import org.opensearch.common.xcontent.json.JsonXContent;
+import org.opensearch.core.xcontent.MediaTypeRegistry;
 
 import java.io.IOException;
 
@@ -66,9 +66,7 @@ public class UpdatableFieldPropertyTests extends MapperServiceTestCase {
      */
     public void testUpdatableSerializesToJson() throws IOException {
         MapperService mapperService = createMapperService(fieldMapping(b -> b.field("type", "keyword").field("updatable", true)));
-        XContentBuilder serialized = XContentFactory.jsonBuilder();
-        mapperService.documentMapper().toXContent(serialized, ToXContent.EMPTY_PARAMS);
-        String json = serialized.toString();
+        String json = Strings.toString(MediaTypeRegistry.JSON, mapperService.documentMapper().mapping());
         assertThat(json, containsString("\"updatable\":true"));
     }
 
@@ -77,9 +75,7 @@ public class UpdatableFieldPropertyTests extends MapperServiceTestCase {
      */
     public void testUpdatableDoesNotSerializeWhenDefault() throws IOException {
         MapperService mapperService = createMapperService(fieldMapping(b -> b.field("type", "keyword")));
-        XContentBuilder serialized = XContentFactory.jsonBuilder();
-        mapperService.documentMapper().toXContent(serialized, ToXContent.EMPTY_PARAMS);
-        String json = serialized.toString();
+        String json = Strings.toString(MediaTypeRegistry.JSON, mapperService.documentMapper().mapping());
         assertFalse(json.contains("\"updatable\""));
     }
 }

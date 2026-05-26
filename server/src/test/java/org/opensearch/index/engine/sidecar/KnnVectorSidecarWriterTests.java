@@ -36,6 +36,7 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
         Path tmpDir = createTempDir();
         try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 64, 1)) {
             float[] vector = new float[64];
+            for (int i = 0; i < 64; i++) vector[i] = randomFloat() + 0.01f;
             writer.addVector(10, vector);
             writer.addVector(50, vector);
 
@@ -99,6 +100,7 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
         try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 32, 42)) {
             assertEquals(42, writer.generation());
             float[] v = new float[32];
+            for (int i = 0; i < 32; i++) v[i] = randomFloat() + 0.01f;
             writer.addVector(0, v);
             KnnVectorSidecarWriter.SidecarWriteResult result = writer.flush();
             assertEquals(42, result.generation());
@@ -110,6 +112,7 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
         try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 16, 1)) {
             assertEquals(0, writer.docsAdded());
             float[] v = new float[16];
+            for (int i = 0; i < 16; i++) v[i] = randomFloat() + 0.01f;
             writer.addVector(5, v);
             assertEquals(1, writer.docsAdded());
             writer.addVector(10, v);

@@ -222,9 +222,9 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
                 useSimilarity,
                 normalizer,
                 splitQueriesOnWhitespace,
-                updatable,
                 boost,
-                meta
+                meta,
+                updatable
             );
         }
 

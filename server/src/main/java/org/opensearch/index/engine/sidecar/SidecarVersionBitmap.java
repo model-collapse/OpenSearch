@@ -37,6 +37,10 @@ public class SidecarVersionBitmap {
         return bits.getBits();
     }
 
+    public int nextSetBit(int from) {
+        return bits.nextSetBit(from);
+    }
+
     public SidecarVersionBitmap remap(int[] oldToNew, int newMaxDoc) {
         SidecarVersionBitmap remapped = new SidecarVersionBitmap(newMaxDoc);
         for (int oldDoc = bits.nextSetBit(0); oldDoc != -1 && oldDoc < maxDoc; oldDoc = oldDoc + 1 < maxDoc

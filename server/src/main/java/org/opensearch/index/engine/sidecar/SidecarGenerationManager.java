@@ -34,21 +34,27 @@ public class SidecarGenerationManager {
     public long acquireGeneration(String segmentName, String fieldName) {
         String key = segmentName + ":" + fieldName;
         AtomicInteger count = generationCounts.computeIfAbsent(key, k -> new AtomicInteger(0));
-        int current = count.get();
-        if (current >= maxGenerationsPerSegment) {
-            throw new OpenSearchRejectedExecutionException(
-                "sidecar generation limit reached for field ["
-                    + fieldName
-                    + "] on segment ["
-                    + segmentName
-                    + "]: "
-                    + current
-                    + " >= "
-                    + maxGenerationsPerSegment
-                    + ". Wait for background merge to consolidate."
-            );
+
+        while (true) {
+            int current = count.get();
+            if (current >= maxGenerationsPerSegment) {
+                throw new OpenSearchRejectedExecutionException(
+                    "sidecar generation limit reached for field ["
+                        + fieldName
+                        + "] on segment ["
+                        + segmentName
+                        + "]: "
+                        + current
+                        + " >= "
+                        + maxGenerationsPerSegment
+                        + ". Wait for background merge to consolidate."
+                );
+            }
+            if (count.compareAndSet(current, current + 1)) {
+                return current + 1;
+            }
+            // CAS failed, retry
         }
-        return count.incrementAndGet();
     }
 
     public void onMergeCompleted(String segmentName, String fieldName) {

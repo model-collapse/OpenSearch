@@ -43,6 +43,9 @@ public class SidecarVersionBitmapFormat {
             throw new IOException("Unsupported bitmap version: " + version);
         }
         int maxDoc = header.getInt();
+        if (maxDoc <= 0 || maxDoc > 10_000_000) {
+            throw new IOException("Invalid bitmap maxDoc: " + maxDoc + " (must be between 1 and 10000000)");
+        }
 
         int numWords = FixedBitSet.bits2words(maxDoc);
         byte[] bodyBytes = in.readNBytes(numWords * Long.BYTES);

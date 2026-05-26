@@ -4436,4 +4436,32 @@ public class MetadataCreateIndexServiceTests extends OpenSearchTestCase {
         );
         assertTrue(ex.getMessage().contains("pluggable data format"));
     }
+
+    public void testValidateResizeAllowsNonDFAIndex() {
+        // Normal index without DFA should pass resize validation (no regression)
+        ClusterState state = createClusterState(
+            "source",
+            2,
+            0,
+            Settings.builder().put("index.blocks.write", true).build()
+        );
+
+        // Should NOT throw
+        IndexMetadata result = MetadataCreateIndexService.validateResize(state, "source", "target", Settings.EMPTY);
+        assertNotNull(result);
+    }
+
+    public void testValidateResizeRejectsDFAIndexWithExplicitFalse() {
+        // DFA explicitly set to false should pass resize validation
+        ClusterState state = createClusterState(
+            "source",
+            2,
+            0,
+            Settings.builder().put("index.blocks.write", true).put("index.pluggable.dataformat.enabled", false).build()
+        );
+
+        // Should NOT throw
+        IndexMetadata result = MetadataCreateIndexService.validateResize(state, "source", "target", Settings.EMPTY);
+        assertNotNull(result);
+    }
 }

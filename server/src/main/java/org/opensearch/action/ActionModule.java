@@ -312,6 +312,8 @@ import org.opensearch.action.termvectors.TransportShardMultiTermsVectorAction;
 import org.opensearch.action.termvectors.TransportTermVectorsAction;
 import org.opensearch.action.update.TransportUpdateAction;
 import org.opensearch.action.update.UpdateAction;
+import org.opensearch.action.update.fields.ShardUpdateFieldsAction;
+import org.opensearch.action.update.fields.TransportShardUpdateFieldsAction;
 import org.opensearch.action.update.fields.TransportUpdateFieldsAction;
 import org.opensearch.action.update.fields.UpdateFieldsAction;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
@@ -767,6 +769,7 @@ public class ActionModule extends AbstractModule {
         actions.register(DeleteAction.INSTANCE, TransportDeleteAction.class);
         actions.register(UpdateAction.INSTANCE, TransportUpdateAction.class);
         actions.register(UpdateFieldsAction.INSTANCE, TransportUpdateFieldsAction.class);
+        actions.register(ShardUpdateFieldsAction.INSTANCE, TransportShardUpdateFieldsAction.class);
         actions.register(MultiGetAction.INSTANCE, TransportMultiGetAction.class, TransportShardMultiGetAction.class);
         actions.register(BulkAction.INSTANCE, TransportBulkAction.class, TransportShardBulkAction.class);
         actions.register(SearchAction.INSTANCE, TransportSearchAction.class);

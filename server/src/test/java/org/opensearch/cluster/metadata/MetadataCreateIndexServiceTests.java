@@ -4421,4 +4421,19 @@ public class MetadataCreateIndexServiceTests extends OpenSearchTestCase {
 
         MetadataCreateIndexService.validateIngestionSourceSettings(settings, state);
     }
+
+    public void testValidateResizeRejectsDFAIndex() {
+        ClusterState state = createClusterState(
+            "source",
+            2,
+            0,
+            Settings.builder().put("index.blocks.write", true).put("index.pluggable.dataformat.enabled", true).build()
+        );
+
+        IllegalArgumentException ex = expectThrows(
+            IllegalArgumentException.class,
+            () -> MetadataCreateIndexService.validateResize(state, "source", "target", Settings.EMPTY)
+        );
+        assertTrue(ex.getMessage().contains("pluggable data format"));
+    }
 }

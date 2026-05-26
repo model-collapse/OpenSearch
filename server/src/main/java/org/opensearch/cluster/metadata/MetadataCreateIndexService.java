@@ -1972,6 +1972,16 @@ public class MetadataCreateIndexService {
             );
         }
 
+        // Block resize on data-format-aware indices (sidecar files not supported by addIndexes)
+        if (sourceMetadata.getSettings().getAsBoolean("index.pluggable.dataformat.enabled", false)) {
+            throw new IllegalArgumentException(
+                "cannot resize index ["
+                    + sourceIndex
+                    + "] because it uses a pluggable data format; "
+                    + "shrink/split/clone is not supported for data-format-aware indices"
+            );
+        }
+
         // ensure write operations on the source index is blocked
         if (state.blocks().indexBlocked(ClusterBlockLevel.WRITE, sourceIndex) == false) {
             throw new IllegalStateException(

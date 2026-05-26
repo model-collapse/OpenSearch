@@ -14,41 +14,43 @@ import org.opensearch.test.OpenSearchTestCase;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class DataFormatAwareEngineLockingTests extends OpenSearchTestCase {
 
     public void testVersionMapLockSerializesConcurrentAccess() throws Exception {
         LiveVersionMap versionMap = new LiveVersionMap();
         BytesRef uid = new BytesRef("doc1");
-        AtomicLong holdTime = new AtomicLong(0);
-        CountDownLatch latch = new CountDownLatch(2);
+        CountDownLatch t1HasLock = new CountDownLatch(1);
+        CountDownLatch t2Waiting = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        AtomicBoolean t2WaitedForLock = new AtomicBoolean(false);
 
         Thread t1 = new Thread(() -> {
             try (var lock = versionMap.acquireLock(uid)) {
-                Thread.sleep(50);
+                t1HasLock.countDown(); // signal t1 holds lock
+                t2Waiting.await(5, TimeUnit.SECONDS); // wait for t2 to be blocked
+                Thread.sleep(20); // hold a bit longer to ensure t2 is really waiting
             } catch (Exception e) { /* */ }
-            latch.countDown();
+            done.countDown();
         });
 
         Thread t2 = new Thread(() -> {
             try {
-                Thread.sleep(10); // ensure t1 gets lock first
-            } catch (InterruptedException e) { /* */ }
-            long start = System.nanoTime();
-            try (var lock = versionMap.acquireLock(uid)) {
-                holdTime.set((System.nanoTime() - start) / 1_000_000);
-            }
-            latch.countDown();
+                t1HasLock.await(5, TimeUnit.SECONDS); // ensure t1 has lock first
+                t2Waiting.countDown(); // signal we're about to try acquiring
+                long start = System.nanoTime();
+                try (var lock = versionMap.acquireLock(uid)) {
+                    long waited = (System.nanoTime() - start) / 1_000_000;
+                    t2WaitedForLock.set(waited >= 10); // should have waited
+                }
+            } catch (Exception e) { /* */ }
+            done.countDown();
         });
 
         t1.start();
         t2.start();
-        latch.await();
-        assertTrue(
-            "Thread 2 should have waited at least 30ms for lock, waited " + holdTime.get() + "ms",
-            holdTime.get() >= 30
-        );
+        assertTrue("Threads should complete within 10s", done.await(10, TimeUnit.SECONDS));
+        assertTrue("Thread 2 should have waited for lock", t2WaitedForLock.get());
     }
 
     public void testDifferentDocIdsDoNotBlock() throws Exception {

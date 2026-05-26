@@ -11,6 +11,10 @@ package org.opensearch.index.engine.sidecar;
 import org.opensearch.core.concurrency.OpenSearchRejectedExecutionException;
 import org.opensearch.test.OpenSearchTestCase;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class SidecarGenerationManagerTests extends OpenSearchTestCase {
 
     public void testAcquireGenerationIncrementsCount() {
@@ -57,5 +61,37 @@ public class SidecarGenerationManagerTests extends OpenSearchTestCase {
     public void testZeroLimitRejectsImmediately() {
         SidecarGenerationManager mgr = new SidecarGenerationManager(0);
         expectThrows(OpenSearchRejectedExecutionException.class, () -> mgr.acquireGeneration("_0", "embedding"));
+    }
+
+    public void testConcurrentAcquireRespectsLimit() throws Exception {
+        int maxGen = 10;
+        SidecarGenerationManager mgr = new SidecarGenerationManager(maxGen);
+        int numThreads = 20;
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(numThreads);
+        AtomicInteger successes = new AtomicInteger(0);
+        AtomicInteger rejections = new AtomicInteger(0);
+
+        for (int i = 0; i < numThreads; i++) {
+            new Thread(() -> {
+                try {
+                    start.await();
+                    mgr.acquireGeneration("_0", "embedding");
+                    successes.incrementAndGet();
+                } catch (OpenSearchRejectedExecutionException e) {
+                    rejections.incrementAndGet();
+                } catch (Exception e) {
+                    // unexpected
+                }
+                done.countDown();
+            }).start();
+        }
+
+        start.countDown(); // release all threads
+        assertTrue(done.await(10, TimeUnit.SECONDS));
+
+        assertEquals(maxGen, successes.get());
+        assertEquals(numThreads - maxGen, rejections.get());
+        assertEquals(maxGen, mgr.getGenerationCount("_0", "embedding"));
     }
 }

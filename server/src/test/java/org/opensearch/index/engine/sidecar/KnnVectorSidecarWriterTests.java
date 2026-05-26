@@ -72,4 +72,48 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
             assertTrue(writer.getVersionBitmap().get(100000));
         }
     }
+
+    public void testMultipleVectorsProduceValidFiles() throws Exception {
+        Path tmpDir = createTempDir();
+        try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 64, 1)) {
+            for (int i = 0; i < 100; i++) {
+                float[] vector = new float[64];
+                for (int j = 0; j < 64; j++) vector[j] = randomFloat();
+                writer.addVector(i * 10, vector);
+            }
+
+            KnnVectorSidecarWriter.SidecarWriteResult result = writer.flush();
+            assertNotNull(result);
+            assertEquals(100, result.numDocs());
+            assertEquals(100, result.bitmap().cardinality());
+
+            // Verify files exist on disk
+            for (String file : result.files()) {
+                assertTrue(java.nio.file.Files.exists(tmpDir.resolve(file)));
+            }
+        }
+    }
+
+    public void testGenerationIsCorrect() throws Exception {
+        Path tmpDir = createTempDir();
+        try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 32, 42)) {
+            assertEquals(42, writer.generation());
+            float[] v = new float[32];
+            writer.addVector(0, v);
+            KnnVectorSidecarWriter.SidecarWriteResult result = writer.flush();
+            assertEquals(42, result.generation());
+        }
+    }
+
+    public void testDocsAddedCount() throws Exception {
+        Path tmpDir = createTempDir();
+        try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 16, 1)) {
+            assertEquals(0, writer.docsAdded());
+            float[] v = new float[16];
+            writer.addVector(5, v);
+            assertEquals(1, writer.docsAdded());
+            writer.addVector(10, v);
+            assertEquals(2, writer.docsAdded());
+        }
+    }
 }

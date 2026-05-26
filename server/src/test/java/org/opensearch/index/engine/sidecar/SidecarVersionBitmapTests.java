@@ -75,4 +75,54 @@ public class SidecarVersionBitmapTests extends OpenSearchTestCase {
         assertFalse(remapped.get(5));
         assertEquals(3, remapped.cardinality());
     }
+
+    public void testSingleBitAtBoundary() {
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(64);
+        bitmap.set(63); // last bit in first word
+        assertTrue(bitmap.get(63));
+        assertFalse(bitmap.get(62));
+        assertEquals(1, bitmap.cardinality());
+    }
+
+    public void testLargeBitmap() {
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(1_000_000);
+        bitmap.set(0);
+        bitmap.set(999_999);
+        bitmap.set(500_000);
+        assertTrue(bitmap.get(0));
+        assertTrue(bitmap.get(999_999));
+        assertTrue(bitmap.get(500_000));
+        assertFalse(bitmap.get(1));
+        assertEquals(3, bitmap.cardinality());
+    }
+
+    public void testRemapWithAllBitsSet() {
+        SidecarVersionBitmap original = new SidecarVersionBitmap(5);
+        for (int i = 0; i < 5; i++) original.set(i);
+
+        int[] oldToNew = {4, 3, 2, 1, 0}; // reverse mapping
+        SidecarVersionBitmap remapped = original.remap(oldToNew, 5);
+        for (int i = 0; i < 5; i++) assertTrue(remapped.get(i));
+        assertEquals(5, remapped.cardinality());
+    }
+
+    public void testSerializationLargeBitmap() throws Exception {
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(100_000);
+        for (int i = 0; i < 100_000; i += 7) {
+            bitmap.set(i);
+        }
+        int expectedCard = bitmap.cardinality();
+
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        SidecarVersionBitmapFormat.write(bitmap, out);
+
+        java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(out.toByteArray());
+        SidecarVersionBitmap restored = SidecarVersionBitmapFormat.read(in);
+
+        assertEquals(100_000, restored.maxDoc());
+        assertEquals(expectedCard, restored.cardinality());
+        for (int i = 0; i < 100_000; i += 7) {
+            assertTrue(restored.get(i));
+        }
+    }
 }

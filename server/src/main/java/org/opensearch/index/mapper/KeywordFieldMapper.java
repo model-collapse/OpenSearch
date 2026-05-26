@@ -170,6 +170,9 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
             false
         );
 
+        private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
         private final Parameter<Float> boost = Parameter.boostParam();
 
@@ -219,6 +222,7 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
                 useSimilarity,
                 normalizer,
                 splitQueriesOnWhitespace,
+                updatable,
                 boost,
                 meta
             );
@@ -808,6 +812,7 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
     private final boolean useSimilarity;
     private final String normalizerName;
     private final boolean splitQueriesOnWhitespace;
+    private final boolean updatable;
 
     private final IndexAnalyzers indexAnalyzers;
 
@@ -832,6 +837,7 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
         this.useSimilarity = builder.useSimilarity.getValue();
         this.normalizerName = builder.normalizer.getValue();
         this.splitQueriesOnWhitespace = builder.splitQueriesOnWhitespace.getValue();
+        this.updatable = builder.updatable.getValue();
 
         this.indexAnalyzers = builder.indexAnalyzers;
     }
@@ -846,6 +852,13 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
 
     boolean useSimilarity() {
         return useSimilarity;
+    }
+
+    /**
+     * Returns whether this field is marked as updatable for sidecar updates.
+     */
+    public boolean isUpdatable() {
+        return updatable;
     }
 
     @Override

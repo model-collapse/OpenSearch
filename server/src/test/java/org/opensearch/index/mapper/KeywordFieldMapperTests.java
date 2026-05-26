@@ -216,6 +216,19 @@ public class KeywordFieldMapperTests extends MapperTestCase {
         }, m -> assertFalse(m.fieldType().getTextSearchInfo().hasNorms()));
 
         checker.registerUpdateCheck(b -> b.field("boost", 2.0), m -> assertEquals(m.fieldType().boost(), 2.0, 0));
+
+        checker.registerUpdateCheck(
+            b -> b.field("updatable", true),
+            m -> assertTrue(((KeywordFieldMapper) m).isUpdatable())
+        );
+        // Disabling updatable after it has been enabled is a conflict
+        checker.registerConflictCheck("updatable", fieldMapping(b -> {
+            b.field("type", "keyword");
+            b.field("updatable", true);
+        }), fieldMapping(b -> {
+            b.field("type", "keyword");
+            b.field("updatable", false);
+        }));
     }
 
     public void testDefaults() throws Exception {

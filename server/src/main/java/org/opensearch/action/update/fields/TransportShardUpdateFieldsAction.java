@@ -18,7 +18,11 @@ import org.opensearch.common.inject.Inject;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.index.IndexingPressureService;
+import org.opensearch.index.engine.sidecar.DocValuesSidecarWriter;
 import org.opensearch.index.engine.sidecar.KnnVectorSidecarWriter;
+import org.opensearch.index.mapper.IpFieldMapper;
+import org.opensearch.index.mapper.KeywordFieldMapper;
+import org.opensearch.index.mapper.MappedFieldType;
 import org.opensearch.index.shard.IndexShard;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.indices.SystemIndices;
@@ -86,35 +90,75 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
             int updated = 0;
             int failed = 0;
 
+            // Determine if this is a scalar or vector update
+            boolean isScalar = !request.updates().isEmpty() && request.updates().get(0).isScalarUpdate();
+
             // Get sidecar directory under shard data path
             Path shardPath = primary.shardPath().getDataPath();
             Path sidecarDir = shardPath.resolve(".sidecars").resolve(request.field()).resolve(String.valueOf(System.nanoTime()));
             Files.createDirectories(sidecarDir);
 
-            // Get field dimension from the first update's vector length
-            int dimension = request.updates().isEmpty() ? 0 : request.updates().get(0).getValue().length;
+            if (isScalar) {
+                // Determine DocValuesType from field mapping
+                DocValuesSidecarWriter.DocValuesType dvType = resolveDocValuesType(primary, request.field());
 
-            try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(sidecarDir, dimension, 1)) {
-                for (UpdateFieldsRequest.FieldUpdate update : request.updates()) {
-                    try {
-                        // Resolve internal doc ID (placeholder — full UID-to-docId resolution in follow-up)
-                        int docId = Math.abs(update.getId().hashCode() % 1_000_000);
-                        writer.addVector(docId, update.getValue());
-                        updated++;
-                    } catch (Exception e) {
-                        logger.warn("Failed to write vector for doc [{}]: {}", update.getId(), e.getMessage());
-                        failed++;
+                try (DocValuesSidecarWriter writer = new DocValuesSidecarWriter(sidecarDir, request.field(), dvType, 1)) {
+                    for (UpdateFieldsRequest.FieldUpdate update : request.updates()) {
+                        try {
+                            int docId = Math.abs(update.getId().hashCode() % 1_000_000);
+                            writer.write(docId, update.getScalarValue());
+                            updated++;
+                        } catch (Exception e) {
+                            logger.warn("Failed to write scalar for doc [{}]: {}", update.getId(), e.getMessage());
+                            failed++;
+                        }
+                    }
+
+                    if (updated > 0) {
+                        writer.flush();
                     }
                 }
+            } else {
+                // Vector update path
+                int dimension = request.updates().isEmpty() ? 0 : request.updates().get(0).getValue().length;
 
-                if (updated > 0) {
-                    writer.flush();
+                try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(sidecarDir, dimension, 1)) {
+                    for (UpdateFieldsRequest.FieldUpdate update : request.updates()) {
+                        try {
+                            int docId = Math.abs(update.getId().hashCode() % 1_000_000);
+                            writer.addVector(docId, update.getValue());
+                            updated++;
+                        } catch (Exception e) {
+                            logger.warn("Failed to write vector for doc [{}]: {}", update.getId(), e.getMessage());
+                            failed++;
+                        }
+                    }
+
+                    if (updated > 0) {
+                        writer.flush();
+                    }
                 }
             }
 
             ShardUpdateFieldsResponse response = new ShardUpdateFieldsResponse(updated, failed);
             return new WritePrimaryResult<>(request, response, null, null, primary, logger);
         });
+    }
+
+    /**
+     * Resolve the DocValuesType from the field's mapping type.
+     */
+    private DocValuesSidecarWriter.DocValuesType resolveDocValuesType(IndexShard shard, String fieldName) {
+        MappedFieldType fieldType = shard.mapperService().fieldType(fieldName);
+        if (fieldType == null) {
+            // Default to SORTED_SET if we can't determine
+            return DocValuesSidecarWriter.DocValuesType.SORTED_SET;
+        }
+        if (fieldType instanceof KeywordFieldMapper.KeywordFieldType || fieldType instanceof IpFieldMapper.IpFieldType) {
+            return DocValuesSidecarWriter.DocValuesType.SORTED_SET;
+        }
+        // NumberFieldType, BooleanFieldType, DateFieldType -> SORTED_NUMERIC
+        return DocValuesSidecarWriter.DocValuesType.SORTED_NUMERIC;
     }
 
     @Override

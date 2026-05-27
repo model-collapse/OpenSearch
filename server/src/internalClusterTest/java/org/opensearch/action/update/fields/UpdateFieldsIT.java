@@ -95,6 +95,80 @@ public class UpdateFieldsIT extends OpenSearchIntegTestCase {
         assertEquals(0, response.getFailed());
     }
 
+    public void testUpdateFieldsWithStringValue() throws Exception {
+        assertAcked(prepareCreate("test-index").setMapping(
+            "title", "type=text",
+            "category", "type=keyword,updatable=true"
+        ).setSettings(Settings.builder()
+            .put("index.number_of_shards", 1)
+            .put("index.number_of_replicas", 0)
+        ));
+        ensureGreen("test-index");
+
+        client().prepareIndex("test-index").setId("doc1").setSource("title", "hello", "category", "old").get();
+        client().admin().indices().prepareRefresh("test-index").get();
+
+        // Update with scalar string value
+        UpdateFieldsRequest request = new UpdateFieldsRequest(
+            "test-index",
+            "category",
+            List.of(new UpdateFieldsRequest.FieldUpdate("doc1", (Object) "science"))
+        );
+
+        UpdateFieldsResponse response = client().execute(UpdateFieldsAction.INSTANCE, request).actionGet();
+        assertNotNull(response);
+        assertEquals(1, response.getUpdated());
+        assertEquals(0, response.getFailed());
+    }
+
+    public void testUpdateFieldsWithNumericValue() throws Exception {
+        assertAcked(prepareCreate("test-index").setMapping(
+            "title", "type=text",
+            "score", "type=long,updatable=true"
+        ).setSettings(Settings.builder()
+            .put("index.number_of_shards", 1)
+            .put("index.number_of_replicas", 0)
+        ));
+        ensureGreen("test-index");
+
+        client().prepareIndex("test-index").setId("doc1").setSource("title", "hello", "score", 10).get();
+        client().admin().indices().prepareRefresh("test-index").get();
+
+        UpdateFieldsRequest request = new UpdateFieldsRequest(
+            "test-index",
+            "score",
+            List.of(new UpdateFieldsRequest.FieldUpdate("doc1", (Object) 99L))
+        );
+
+        UpdateFieldsResponse response = client().execute(UpdateFieldsAction.INSTANCE, request).actionGet();
+        assertEquals(1, response.getUpdated());
+        assertEquals(0, response.getFailed());
+    }
+
+    public void testUpdateFieldsWithBooleanValue() throws Exception {
+        assertAcked(prepareCreate("test-index").setMapping(
+            "title", "type=text",
+            "active", "type=boolean,updatable=true"
+        ).setSettings(Settings.builder()
+            .put("index.number_of_shards", 1)
+            .put("index.number_of_replicas", 0)
+        ));
+        ensureGreen("test-index");
+
+        client().prepareIndex("test-index").setId("doc1").setSource("title", "hello", "active", false).get();
+        client().admin().indices().prepareRefresh("test-index").get();
+
+        UpdateFieldsRequest request = new UpdateFieldsRequest(
+            "test-index",
+            "active",
+            List.of(new UpdateFieldsRequest.FieldUpdate("doc1", (Object) true))
+        );
+
+        UpdateFieldsResponse response = client().execute(UpdateFieldsAction.INSTANCE, request).actionGet();
+        assertEquals(1, response.getUpdated());
+        assertEquals(0, response.getFailed());
+    }
+
     public void testUpdateFieldsEmptyUpdatesRejected() throws Exception {
         assertAcked(prepareCreate("test-index").setMapping("field1", "type=keyword,updatable=true")
             .setSettings(Settings.builder()

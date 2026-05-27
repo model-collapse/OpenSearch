@@ -279,6 +279,9 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
             m -> toType(m).skiplist
         );
 
+        private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Float> boost = Parameter.boostParam();
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
 
@@ -346,7 +349,7 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
 
         @Override
         protected List<Parameter<?>> getParameters() {
-            return Arrays.asList(index, docValues, store, skiplist, format, printFormat, locale, nullValue, ignoreMalformed, boost, meta);
+            return Arrays.asList(index, docValues, store, skiplist, format, printFormat, locale, nullValue, ignoreMalformed, boost, meta, updatable);
         }
 
         private Long parseNullValue(DateFieldType fieldType) {
@@ -765,6 +768,7 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
 
     private final boolean ignoreMalformedByDefault;
     private final Version indexCreatedVersion;
+    private final boolean updatable;
 
     private DateFieldMapper(
         String simpleName,
@@ -790,6 +794,12 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
         this.resolution = resolution;
         this.ignoreMalformedByDefault = builder.ignoreMalformed.getDefaultValue().value();
         this.indexCreatedVersion = builder.indexCreatedVersion;
+        this.updatable = builder.updatable.getValue();
+    }
+
+    @Override
+    public boolean isUpdatable() {
+        return updatable;
     }
 
     @Override

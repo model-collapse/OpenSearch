@@ -108,6 +108,9 @@ public class IpFieldMapper extends ParametrizedFieldMapper {
         private final Parameter<String> nullValue = Parameter.stringParam("null_value", false, m -> toType(m).nullValueAsString, null)
             .acceptsNull();
 
+        private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
 
         private final boolean ignoreMalformedByDefault;
@@ -152,7 +155,7 @@ public class IpFieldMapper extends ParametrizedFieldMapper {
 
         @Override
         protected List<Parameter<?>> getParameters() {
-            return Arrays.asList(indexed, hasDocValues, stored, ignoreMalformed, nullValue, meta);
+            return Arrays.asList(indexed, hasDocValues, stored, ignoreMalformed, nullValue, meta, updatable);
         }
 
         @Override
@@ -598,6 +601,7 @@ public class IpFieldMapper extends ParametrizedFieldMapper {
 
     private final boolean ignoreMalformedByDefault;
     private final Version indexCreatedVersion;
+    private final boolean updatable;
 
     private IpFieldMapper(String simpleName, MappedFieldType mappedFieldType, MultiFields multiFields, CopyTo copyTo, Builder builder) {
         super(simpleName, mappedFieldType, multiFields, copyTo);
@@ -609,6 +613,12 @@ public class IpFieldMapper extends ParametrizedFieldMapper {
         this.nullValue = builder.parseNullValue();
         this.nullValueAsString = builder.nullValue.getValue();
         this.indexCreatedVersion = builder.indexCreatedVersion;
+        this.updatable = builder.updatable.getValue();
+    }
+
+    @Override
+    public boolean isUpdatable() {
+        return updatable;
     }
 
     @Override

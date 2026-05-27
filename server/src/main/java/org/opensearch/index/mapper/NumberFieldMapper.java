@@ -135,6 +135,9 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
 
         private final Parameter<Number> nullValue;
 
+        private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
 
         private final NumberType type;
@@ -180,7 +183,7 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
 
         @Override
         protected List<Parameter<?>> getParameters() {
-            return Arrays.asList(indexed, hasDocValues, stored, skiplist, ignoreMalformed, coerce, nullValue, meta);
+            return Arrays.asList(indexed, hasDocValues, stored, skiplist, ignoreMalformed, coerce, nullValue, meta, updatable);
         }
 
         @Override
@@ -2121,6 +2124,7 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
 
     private final boolean ignoreMalformedByDefault;
     private final boolean coerceByDefault;
+    private final boolean updatable;
 
     private NumberFieldMapper(String simpleName, MappedFieldType mappedFieldType, MultiFields multiFields, CopyTo copyTo, Builder builder) {
         super(simpleName, mappedFieldType, multiFields, copyTo);
@@ -2134,10 +2138,16 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
         this.nullValue = builder.nullValue.getValue();
         this.ignoreMalformedByDefault = builder.ignoreMalformed.getDefaultValue().value();
         this.coerceByDefault = builder.coerce.getDefaultValue().value();
+        this.updatable = builder.updatable.getValue();
     }
 
     boolean coerce() {
         return coerce.value();
+    }
+
+    @Override
+    public boolean isUpdatable() {
+        return updatable;
     }
 
     @Override

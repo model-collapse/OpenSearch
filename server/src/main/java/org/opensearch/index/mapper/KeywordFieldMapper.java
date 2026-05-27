@@ -857,6 +857,7 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
     /**
      * Returns whether this field is marked as updatable for sidecar updates.
      */
+    @Override
     public boolean isUpdatable() {
         return updatable;
     }

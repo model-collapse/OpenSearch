@@ -361,6 +361,14 @@ public abstract class FieldMapper extends Mapper implements Cloneable {
         return false;
     }
 
+    /**
+     * Returns whether this field is marked as updatable for sidecar updates.
+     * Subclasses that support in-place updates should override this method.
+     */
+    public boolean isUpdatable() {
+        return false;
+    }
+
     private void extractGroupingCriteriaParams(ParseContext context) throws IOException {
         if (context.docMapper() != null && context.docMapper().mappers() != null) {
             final Mapper mapper = context.docMapper().mappers().getMapper(ContextAwareGroupingFieldMapper.CONTENT_TYPE);

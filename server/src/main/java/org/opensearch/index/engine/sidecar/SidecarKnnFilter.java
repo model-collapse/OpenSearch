@@ -48,8 +48,9 @@ public class SidecarKnnFilter extends Query {
                     public int nextDoc() {
                         doc++;
                         while (doc < leafMaxDoc) {
-                            // Include doc only if NOT in sidecar bitmap
-                            if (!bitmap.get(doc + context.docBase)) {
+                            int globalDoc = doc + context.docBase;
+                            // Include doc only if NOT in sidecar bitmap (with bounds check)
+                            if (globalDoc >= bitmap.maxDoc() || !bitmap.get(globalDoc)) {
                                 return doc;
                             }
                             doc++;

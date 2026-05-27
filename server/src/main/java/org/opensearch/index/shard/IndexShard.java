@@ -573,7 +573,12 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 DirectoryReader wrapped = delegate.apply(reader);
                 if (sidecarRegistry.hasAnySidecars()) {
                     return SidecarAwareDirectoryReader.wrap(wrapped, (leafReader, docId) -> {
-                        String segmentName = leafReader.toString();
+                        String segmentName;
+                        if (leafReader instanceof org.apache.lucene.index.SegmentReader sr) {
+                            segmentName = sr.getSegmentName();
+                        } else {
+                            segmentName = "leaf_" + leafReader.hashCode();
+                        }
                         Map<String, Object> overlay = new HashMap<>();
                         for (String field : sidecarRegistry.getUpdatableFields()) {
                             overlay.putAll(sidecarRegistry.getSidecarValues(field, segmentName, docId));
@@ -587,7 +592,12 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             readerWrapper = reader -> {
                 if (sidecarRegistry.hasAnySidecars()) {
                     return SidecarAwareDirectoryReader.wrap(reader, (leafReader, docId) -> {
-                        String segmentName = leafReader.toString();
+                        String segmentName;
+                        if (leafReader instanceof org.apache.lucene.index.SegmentReader sr) {
+                            segmentName = sr.getSegmentName();
+                        } else {
+                            segmentName = "leaf_" + leafReader.hashCode();
+                        }
                         Map<String, Object> overlay = new HashMap<>();
                         for (String field : sidecarRegistry.getUpdatableFields()) {
                             overlay.putAll(sidecarRegistry.getSidecarValues(field, segmentName, docId));

@@ -94,9 +94,10 @@ public class SidecarRegistryTests extends OpenSearchTestCase {
 
         registry.register("embedding", "_0", bitmap);
 
+        // Phase 1: getSidecarValues always returns empty map (no _source overlay).
+        // Actual sidecar values are read via DocValues/vectors at search time.
         Map<String, Object> values = registry.getSidecarValues("embedding", "_0", 10);
-        assertFalse(values.isEmpty());
-        assertEquals("[sidecar-updated]", values.get("embedding"));
+        assertTrue(values.isEmpty());
     }
 
     public void testGetSidecarValuesWhenClean() {

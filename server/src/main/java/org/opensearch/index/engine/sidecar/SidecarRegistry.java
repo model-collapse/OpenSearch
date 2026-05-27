@@ -62,13 +62,13 @@ public class SidecarRegistry {
 
     /**
      * Returns sidecar overlay values for a given document in a given segment.
-     * For Phase 1, returns a placeholder indicating the document is dirty.
-     * Full implementation will read the actual values from sidecar Lucene index files.
+     * Phase 1: sidecar values are not available for _source overlay. The search/agg
+     * paths read directly from sidecar DocValues/vectors via SidecarDocValuesProvider.
+     * Returning empty map means "don't patch _source" which is correct for now.
      */
     public Map<String, Object> getSidecarValues(String fieldName, String segmentName, int docId) {
-        if (isDirty(fieldName, segmentName, docId)) {
-            return Map.of(fieldName, "[sidecar-updated]");
-        }
+        // Phase 1: sidecar values not available for _source overlay.
+        // Search/agg paths read directly from sidecar DocValues/vectors.
         return Collections.emptyMap();
     }
 

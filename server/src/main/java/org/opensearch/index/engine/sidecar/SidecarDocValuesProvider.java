@@ -32,6 +32,7 @@ public class SidecarDocValuesProvider implements Closeable {
 
     private final Path sidecarPath;
     private final String fieldName;
+    private final Directory dir;
     private final DirectoryReader reader;
     private final LeafReader leafReader;
 
@@ -45,7 +46,7 @@ public class SidecarDocValuesProvider implements Closeable {
     public SidecarDocValuesProvider(Path sidecarPath, String fieldName) throws IOException {
         this.sidecarPath = sidecarPath;
         this.fieldName = fieldName;
-        Directory dir = FSDirectory.open(sidecarPath);
+        this.dir = FSDirectory.open(sidecarPath);
         this.reader = DirectoryReader.open(dir);
         // Sidecar has a single segment
         this.leafReader = reader.leaves().get(0).reader();
@@ -91,5 +92,6 @@ public class SidecarDocValuesProvider implements Closeable {
     @Override
     public void close() throws IOException {
         reader.close();
+        dir.close();
     }
 }

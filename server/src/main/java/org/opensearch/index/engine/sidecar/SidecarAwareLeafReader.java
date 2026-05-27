@@ -91,11 +91,11 @@ public class SidecarAwareLeafReader extends FilterLeafReader {
 
     @Override
     public CacheHelper getCoreCacheHelper() {
-        return in.getCoreCacheHelper();
+        return null; // Sidecar overlay changes visible data — disable caching
     }
 
     @Override
     public CacheHelper getReaderCacheHelper() {
-        return in.getReaderCacheHelper();
+        return null; // Sidecar overlay changes visible data — disable caching
     }
 }

@@ -12,6 +12,7 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
+import org.apache.lucene.index.SegmentReader;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.DocIdSetIterator;
@@ -55,7 +56,12 @@ public class DocIdResolver {
                 if (docId != DocIdSetIterator.NO_MORE_DOCS) {
                     // Check if doc is live (not deleted)
                     if (leaf.getLiveDocs() == null || leaf.getLiveDocs().get(docId)) {
-                        String segmentName = leaf.toString();
+                        String segmentName;
+                        if (leaf instanceof SegmentReader sr) {
+                            segmentName = sr.getSegmentName();
+                        } else {
+                            segmentName = "leaf_" + ctx.ord; // fallback for wrapped readers
+                        }
                         return new ResolvedDoc(ctx.ord, docId, segmentName);
                     }
                 }

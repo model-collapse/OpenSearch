@@ -183,6 +183,8 @@ import org.opensearch.action.admin.indices.readonly.AddIndexBlockAction;
 import org.opensearch.action.admin.indices.readonly.TransportAddIndexBlockAction;
 import org.opensearch.action.admin.indices.recovery.RecoveryAction;
 import org.opensearch.action.admin.indices.recovery.TransportRecoveryAction;
+import org.opensearch.action.admin.indices.updatablefields.TransportUpdatableFieldsStatsAction;
+import org.opensearch.action.admin.indices.updatablefields.UpdatableFieldsStatsAction;
 import org.opensearch.action.admin.indices.refresh.RefreshAction;
 import org.opensearch.action.admin.indices.refresh.TransportRefreshAction;
 import org.opensearch.action.admin.indices.replication.SegmentReplicationStatsAction;
@@ -236,6 +238,8 @@ import org.opensearch.action.admin.indices.template.put.PutIndexTemplateAction;
 import org.opensearch.action.admin.indices.template.put.TransportPutComponentTemplateAction;
 import org.opensearch.action.admin.indices.template.put.TransportPutComposableIndexTemplateAction;
 import org.opensearch.action.admin.indices.template.put.TransportPutIndexTemplateAction;
+import org.opensearch.action.admin.indices.updatablefields.TransportUpdatableFieldsMergeAction;
+import org.opensearch.action.admin.indices.updatablefields.UpdatableFieldsMergeAction;
 import org.opensearch.action.admin.indices.upgrade.get.TransportUpgradeStatusAction;
 import org.opensearch.action.admin.indices.upgrade.get.UpgradeStatusAction;
 import org.opensearch.action.admin.indices.upgrade.post.TransportUpgradeAction;
@@ -441,6 +445,8 @@ import org.opensearch.rest.action.admin.indices.RestPutIndexTemplateAction;
 import org.opensearch.rest.action.admin.indices.RestPutMappingAction;
 import org.opensearch.rest.action.admin.indices.RestRecoveryAction;
 import org.opensearch.rest.action.admin.indices.RestRefreshAction;
+import org.opensearch.rest.action.admin.indices.RestUpdatableFieldsMergeAction;
+import org.opensearch.rest.action.admin.indices.RestUpdatableFieldsStatsAction;
 import org.opensearch.rest.action.admin.indices.RestResizeHandler;
 import org.opensearch.rest.action.admin.indices.RestResolveIndexAction;
 import org.opensearch.rest.action.admin.indices.RestResumeIngestionAction;
@@ -782,6 +788,8 @@ public class ActionModule extends AbstractModule {
         actions.register(ClearScrollAction.INSTANCE, TransportClearScrollAction.class);
         actions.register(RecoveryAction.INSTANCE, TransportRecoveryAction.class);
         actions.register(SegmentReplicationStatsAction.INSTANCE, TransportSegmentReplicationStatsAction.class);
+        actions.register(UpdatableFieldsStatsAction.INSTANCE, TransportUpdatableFieldsStatsAction.class);
+        actions.register(UpdatableFieldsMergeAction.INSTANCE, TransportUpdatableFieldsMergeAction.class);
         actions.register(NodesReloadSecureSettingsAction.INSTANCE, TransportNodesReloadSecureSettingsAction.class);
         actions.register(AutoCreateAction.INSTANCE, AutoCreateAction.TransportAction.class);
 
@@ -1005,6 +1013,8 @@ public class ActionModule extends AbstractModule {
         registerHandler.accept(new RestExplainAction());
 
         registerHandler.accept(new RestRecoveryAction());
+        registerHandler.accept(new RestUpdatableFieldsStatsAction());
+        registerHandler.accept(new RestUpdatableFieldsMergeAction());
 
         registerHandler.accept(new RestReloadSecureSettingsAction());
 

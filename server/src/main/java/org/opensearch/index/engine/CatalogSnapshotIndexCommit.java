@@ -15,7 +15,9 @@ import org.opensearch.index.engine.exec.coord.CatalogSnapshot;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Wraps a {@link CatalogSnapshot} as a Lucene {@link IndexCommit} so that standard
@@ -29,11 +31,17 @@ public class CatalogSnapshotIndexCommit extends IndexCommit {
     private final CatalogSnapshot catalogSnapshot;
     private final Directory directory;
     private final long generation;
+    private final Set<String> sidecarFiles;
 
     public CatalogSnapshotIndexCommit(CatalogSnapshot catalogSnapshot, Directory directory, long generation) {
+        this(catalogSnapshot, directory, generation, Collections.emptySet());
+    }
+
+    public CatalogSnapshotIndexCommit(CatalogSnapshot catalogSnapshot, Directory directory, long generation, Set<String> sidecarFiles) {
         this.catalogSnapshot = catalogSnapshot;
         this.directory = directory;
         this.generation = generation;
+        this.sidecarFiles = sidecarFiles != null ? sidecarFiles : Collections.emptySet();
     }
 
     @Override
@@ -43,7 +51,11 @@ public class CatalogSnapshotIndexCommit extends IndexCommit {
 
     @Override
     public Collection<String> getFileNames() throws IOException {
-        return new ArrayList<>(catalogSnapshot.getFiles(true));
+        Collection<String> baseFiles = new ArrayList<>(catalogSnapshot.getFiles(true));
+        if (!sidecarFiles.isEmpty()) {
+            baseFiles.addAll(sidecarFiles);
+        }
+        return baseFiles;
     }
 
     @Override

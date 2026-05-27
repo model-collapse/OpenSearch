@@ -755,6 +755,14 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         return sidecarRegistry;
     }
 
+    /**
+     * Returns the set of sidecar files that should be included in snapshots and replication.
+     */
+    public Set<String> getSidecarFiles() {
+        if (sidecarRegistry == null) return Set.of();
+        return sidecarRegistry.getAllSidecarFiles();
+    }
+
     public SearchOperationListener getSearchOperationListener() {
         return this.searchOperationListener;
     }
@@ -1873,7 +1881,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 GatedCloseable<CatalogSnapshot> csRef = dfaEngine.acquireLastCommittedSnapshot(flushFirst);
                 CatalogSnapshot cs = csRef.get();
                 long gen = cs.getGeneration();
-                IndexCommit composite = new CatalogSnapshotIndexCommit(cs, store.directory(), gen);
+                Set<String> sidecarFileSet = sidecarRegistry.getAllSidecarFiles();
+                IndexCommit composite = new CatalogSnapshotIndexCommit(cs, store.directory(), gen, sidecarFileSet);
                 return new GatedCloseable<>(composite, csRef::close);
             }
             return applyOnEngine(indexer, engine -> engine.acquireLastIndexCommit(flushFirst));

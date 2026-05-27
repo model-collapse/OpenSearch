@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -160,5 +161,41 @@ public class CatalogSnapshotIndexCommitTests extends OpenSearchTestCase {
         commit.delete();
         // After delete, isDeleted should still return false (no-op)
         assertFalse(commit.isDeleted());
+    }
+
+    public void testGetFileNamesIncludesSidecarFiles() throws IOException {
+        Collection<String> baseFiles = Arrays.asList("_0.cfe", "_0.cfs", "_0.si", "segments_1");
+        Set<String> sidecarFiles = new LinkedHashSet<>(Arrays.asList("_sidecar_embedding_0.vec", "_sidecar_embedding_0.vem"));
+        CatalogSnapshot snapshot = createStubCatalogSnapshot(baseFiles, 1L);
+        Directory directory = new ByteBuffersDirectory();
+
+        CatalogSnapshotIndexCommit commit = new CatalogSnapshotIndexCommit(snapshot, directory, 1L, sidecarFiles);
+
+        Collection<String> actualFiles = commit.getFileNames();
+        Set<String> expectedFiles = new HashSet<>(baseFiles);
+        expectedFiles.addAll(sidecarFiles);
+        assertEquals(expectedFiles, new HashSet<>(actualFiles));
+    }
+
+    public void testGetFileNamesWithEmptySidecarFiles() throws IOException {
+        Collection<String> baseFiles = Arrays.asList("_0.cfe", "_0.cfs", "segments_1");
+        CatalogSnapshot snapshot = createStubCatalogSnapshot(baseFiles, 1L);
+        Directory directory = new ByteBuffersDirectory();
+
+        CatalogSnapshotIndexCommit commit = new CatalogSnapshotIndexCommit(snapshot, directory, 1L, Collections.emptySet());
+
+        Collection<String> actualFiles = commit.getFileNames();
+        assertEquals(new HashSet<>(baseFiles), new HashSet<>(actualFiles));
+    }
+
+    public void testGetFileNamesWithNullSidecarFiles() throws IOException {
+        Collection<String> baseFiles = Arrays.asList("_0.cfe", "_0.cfs", "segments_1");
+        CatalogSnapshot snapshot = createStubCatalogSnapshot(baseFiles, 1L);
+        Directory directory = new ByteBuffersDirectory();
+
+        CatalogSnapshotIndexCommit commit = new CatalogSnapshotIndexCommit(snapshot, directory, 1L, null);
+
+        Collection<String> actualFiles = commit.getFileNames();
+        assertEquals(new HashSet<>(baseFiles), new HashSet<>(actualFiles));
     }
 }

@@ -335,6 +335,12 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
         protected final Parameter<Float> boost = Parameter.boostParam();
         protected final Parameter<Map<String, String>> meta = Parameter.metaParam();
 
+        private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
+        private final Parameter<Boolean> dropped = Parameter.boolParam("dropped", true, m -> toType(m).dropped, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         final TextParams.Analyzers analyzers;
 
         public Builder(String name, IndexAnalyzers indexAnalyzers) {
@@ -391,7 +397,9 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
                 indexPhrases,
                 indexPrefixes,
                 boost,
-                meta
+                meta,
+                updatable,
+                dropped
             );
         }
 
@@ -1004,6 +1012,8 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
     protected final Version indexCreatedVersion;
     protected final IndexAnalyzers indexAnalyzers;
     private final FielddataFrequencyFilter freqFilter;
+    private final boolean updatable;
+    private final boolean dropped;
 
     protected TextFieldMapper(
         String simpleName,
@@ -1031,6 +1041,21 @@ public class TextFieldMapper extends ParametrizedFieldMapper {
         this.indexCreatedVersion = builder.indexCreatedVersion;
         this.indexAnalyzers = builder.analyzers.indexAnalyzers;
         this.freqFilter = builder.freqFilter.getValue();
+        this.updatable = builder.updatable.getValue();
+        this.dropped = builder.dropped.getValue();
+    }
+
+    /**
+     * Returns whether this field is marked as updatable for sidecar updates.
+     */
+    @Override
+    public boolean isUpdatable() {
+        return updatable;
+    }
+
+    @Override
+    public boolean isDropped() {
+        return dropped;
     }
 
     @Override

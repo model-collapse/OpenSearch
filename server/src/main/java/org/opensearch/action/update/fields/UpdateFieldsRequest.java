@@ -152,6 +152,7 @@ public class UpdateFieldsRequest extends ActionRequest {
             if (token == XContentParser.Token.START_OBJECT) {
                 String id = null;
                 float[] value = null;
+                Object scalarValue = null;
                 String innerField = null;
                 while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
                     if (token == XContentParser.Token.FIELD_NAME) {
@@ -172,8 +173,14 @@ public class UpdateFieldsRequest extends ActionRequest {
                             for (int i = 0; i < floats.size(); i++) {
                                 value[i] = floats.get(i);
                             }
+                        } else if (token == XContentParser.Token.VALUE_STRING) {
+                            scalarValue = parser.text();
+                        } else if (token == XContentParser.Token.VALUE_NUMBER) {
+                            scalarValue = parser.numberValue();
+                        } else if (token == XContentParser.Token.VALUE_BOOLEAN) {
+                            scalarValue = parser.booleanValue();
                         } else {
-                            throw new IllegalArgumentException("Expected array for 'value' but got " + token);
+                            throw new IllegalArgumentException("Expected array, string, number, or boolean for 'value' but got " + token);
                         }
                     } else {
                         throw new IllegalArgumentException("Unknown parameter [" + innerField + "] in update entry");
@@ -182,10 +189,16 @@ public class UpdateFieldsRequest extends ActionRequest {
                 if (id == null || id.isEmpty()) {
                     throw new IllegalArgumentException("_id is required in each update entry");
                 }
-                if (value == null || value.length == 0) {
+                if (value != null) {
+                    if (value.length == 0) {
+                        throw new IllegalArgumentException("value is required in each update entry");
+                    }
+                    updates.add(new FieldUpdate(id, value));
+                } else if (scalarValue != null) {
+                    updates.add(new FieldUpdate(id, scalarValue));
+                } else {
                     throw new IllegalArgumentException("value is required in each update entry");
                 }
-                updates.add(new FieldUpdate(id, value));
             } else {
                 throw new IllegalArgumentException("Expected object in updates array but got " + token);
             }
@@ -193,34 +206,61 @@ public class UpdateFieldsRequest extends ActionRequest {
     }
 
     /**
-     * A single field update for a document, containing the document ID and the new vector value.
+     * A single field update for a document, containing the document ID and either a vector value
+     * (float array) or a scalar value (String, Long, Double, Boolean) for doc values updates.
      *
      * @opensearch.internal
      */
     public static class FieldUpdate implements Writeable {
         private final String id;
         private final float[] value;
+        private final Object scalarValue; // String, Long, Double, Boolean, or null
 
+        /**
+         * Constructor for vector updates.
+         */
         public FieldUpdate(String id, float[] value) {
             this.id = id;
             this.value = value;
+            this.scalarValue = null;
+        }
+
+        /**
+         * Constructor for scalar (doc values) updates.
+         * Supported types: String, Long, Double, Boolean.
+         */
+        public FieldUpdate(String id, Object scalarValue) {
+            this.id = id;
+            this.value = null;
+            this.scalarValue = scalarValue;
         }
 
         public FieldUpdate(StreamInput in) throws IOException {
             this.id = in.readString();
-            int len = in.readVInt();
-            this.value = new float[len];
-            for (int i = 0; i < len; i++) {
-                this.value[i] = in.readFloat();
+            boolean hasVector = in.readBoolean();
+            if (hasVector) {
+                this.value = in.readFloatArray();
+            } else {
+                this.value = null;
+            }
+            boolean hasScalar = in.readBoolean();
+            if (hasScalar) {
+                this.scalarValue = in.readGenericValue();
+            } else {
+                this.scalarValue = null;
             }
         }
 
         @Override
         public void writeTo(StreamOutput out) throws IOException {
             out.writeString(id);
-            out.writeVInt(value.length);
-            for (float v : value) {
-                out.writeFloat(v);
+            out.writeBoolean(value != null);
+            if (value != null) {
+                out.writeFloatArray(value);
+            }
+            out.writeBoolean(scalarValue != null);
+            if (scalarValue != null) {
+                out.writeGenericValue(scalarValue);
             }
         }
 
@@ -230,6 +270,18 @@ public class UpdateFieldsRequest extends ActionRequest {
 
         public float[] getValue() {
             return value;
+        }
+
+        public Object getScalarValue() {
+            return scalarValue;
+        }
+
+        public boolean isVectorUpdate() {
+            return value != null;
+        }
+
+        public boolean isScalarUpdate() {
+            return scalarValue != null;
         }
     }
 }

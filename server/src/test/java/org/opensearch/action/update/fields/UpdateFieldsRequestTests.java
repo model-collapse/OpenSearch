@@ -148,4 +148,94 @@ public class UpdateFieldsRequestTests extends OpenSearchTestCase {
         assertEquals("doc1", deserialized.getId());
         assertArrayEquals(new float[] { 1.0f, 2.0f, 3.0f }, deserialized.getValue(), 0.0001f);
     }
+
+    public void testFieldUpdateWithStringValue() {
+        UpdateFieldsRequest.FieldUpdate update = new UpdateFieldsRequest.FieldUpdate("doc1", (Object) "science");
+        assertEquals("doc1", update.getId());
+        assertNull(update.getValue());
+        assertEquals("science", update.getScalarValue());
+        assertTrue(update.isScalarUpdate());
+        assertFalse(update.isVectorUpdate());
+    }
+
+    public void testFieldUpdateWithLongValue() {
+        UpdateFieldsRequest.FieldUpdate update = new UpdateFieldsRequest.FieldUpdate("doc1", (Object) 42L);
+        assertEquals(42L, update.getScalarValue());
+        assertTrue(update.isScalarUpdate());
+        assertFalse(update.isVectorUpdate());
+    }
+
+    public void testFieldUpdateWithDoubleValue() {
+        UpdateFieldsRequest.FieldUpdate update = new UpdateFieldsRequest.FieldUpdate("doc1", (Object) 3.14);
+        assertEquals(3.14, update.getScalarValue());
+        assertTrue(update.isScalarUpdate());
+        assertFalse(update.isVectorUpdate());
+    }
+
+    public void testFieldUpdateWithBooleanValue() {
+        UpdateFieldsRequest.FieldUpdate update = new UpdateFieldsRequest.FieldUpdate("doc1", (Object) true);
+        assertEquals(true, update.getScalarValue());
+        assertTrue(update.isScalarUpdate());
+        assertFalse(update.isVectorUpdate());
+    }
+
+    public void testFieldUpdateSerializationScalar() throws IOException {
+        UpdateFieldsRequest.FieldUpdate original = new UpdateFieldsRequest.FieldUpdate("doc1", (Object) "keyword-value");
+        BytesStreamOutput out = new BytesStreamOutput();
+        original.writeTo(out);
+        StreamInput in = out.bytes().streamInput();
+        UpdateFieldsRequest.FieldUpdate deserialized = new UpdateFieldsRequest.FieldUpdate(in);
+        assertEquals(original.getId(), deserialized.getId());
+        assertEquals(original.getScalarValue(), deserialized.getScalarValue());
+        assertNull(deserialized.getValue());
+        assertTrue(deserialized.isScalarUpdate());
+        assertFalse(deserialized.isVectorUpdate());
+    }
+
+    public void testFieldUpdateSerializationScalarLong() throws IOException {
+        UpdateFieldsRequest.FieldUpdate original = new UpdateFieldsRequest.FieldUpdate("doc1", (Object) 42L);
+        BytesStreamOutput out = new BytesStreamOutput();
+        original.writeTo(out);
+        StreamInput in = out.bytes().streamInput();
+        UpdateFieldsRequest.FieldUpdate deserialized = new UpdateFieldsRequest.FieldUpdate(in);
+        assertEquals(original.getId(), deserialized.getId());
+        assertEquals(42L, deserialized.getScalarValue());
+        assertNull(deserialized.getValue());
+    }
+
+    public void testFieldUpdateSerializationScalarDouble() throws IOException {
+        UpdateFieldsRequest.FieldUpdate original = new UpdateFieldsRequest.FieldUpdate("doc1", (Object) 2.718);
+        BytesStreamOutput out = new BytesStreamOutput();
+        original.writeTo(out);
+        StreamInput in = out.bytes().streamInput();
+        UpdateFieldsRequest.FieldUpdate deserialized = new UpdateFieldsRequest.FieldUpdate(in);
+        assertEquals(original.getId(), deserialized.getId());
+        assertEquals(2.718, deserialized.getScalarValue());
+        assertNull(deserialized.getValue());
+    }
+
+    public void testFieldUpdateSerializationScalarBoolean() throws IOException {
+        UpdateFieldsRequest.FieldUpdate original = new UpdateFieldsRequest.FieldUpdate("doc1", (Object) true);
+        BytesStreamOutput out = new BytesStreamOutput();
+        original.writeTo(out);
+        StreamInput in = out.bytes().streamInput();
+        UpdateFieldsRequest.FieldUpdate deserialized = new UpdateFieldsRequest.FieldUpdate(in);
+        assertEquals(original.getId(), deserialized.getId());
+        assertEquals(true, deserialized.getScalarValue());
+        assertNull(deserialized.getValue());
+    }
+
+    public void testFieldUpdateBackwardCompatVector() throws IOException {
+        // Existing vector updates still work
+        UpdateFieldsRequest.FieldUpdate original = new UpdateFieldsRequest.FieldUpdate("doc1", new float[] { 1.0f, 2.0f });
+        BytesStreamOutput out = new BytesStreamOutput();
+        original.writeTo(out);
+        StreamInput in = out.bytes().streamInput();
+        UpdateFieldsRequest.FieldUpdate deserialized = new UpdateFieldsRequest.FieldUpdate(in);
+        assertEquals(original.getId(), deserialized.getId());
+        assertArrayEquals(original.getValue(), deserialized.getValue(), 0.001f);
+        assertNull(deserialized.getScalarValue());
+        assertTrue(deserialized.isVectorUpdate());
+        assertFalse(deserialized.isScalarUpdate());
+    }
 }

@@ -8,6 +8,9 @@
 
 package org.opensearch.action.admin.indices.updatablefields;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.opensearch.action.admin.indices.forcemerge.ForceMergeRequest;
 import org.opensearch.action.support.ActionFilters;
 import org.opensearch.action.support.HandledTransportAction;
 import org.opensearch.cluster.metadata.IndexMetadata;
@@ -22,12 +25,21 @@ import org.opensearch.indices.IndicesService;
 import org.opensearch.tasks.Task;
 import org.opensearch.transport.TransportService;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Transport action that consolidates sidecar generations into base segments.
+ * Triggers a Lucene force-merge on each shard and clears sidecar registry entries
+ * for the merged fields afterward.
  *
  * @opensearch.experimental
  */
 public class TransportUpdatableFieldsMergeAction extends HandledTransportAction<UpdatableFieldsMergeRequest, UpdatableFieldsMergeResponse> {
+
+    private static final Logger logger = LogManager.getLogger(TransportUpdatableFieldsMergeAction.class);
 
     private final IndicesService indicesService;
     private final ClusterService clusterService;
@@ -66,14 +78,28 @@ public class TransportUpdatableFieldsMergeAction extends HandledTransportAction<
                 SidecarRegistry registry = shard.sidecarRegistry();
                 if (registry == null || !registry.hasAnySidecars()) continue;
 
-                // Trigger a force merge on the shard to consolidate sidecars
-                // In Phase 4 skeleton: just count the fields (simulating merge completion)
-                for (String field : registry.getUpdatableFields()) {
-                    if (request.fields() == null || request.fields().contains(field)) {
-                        // In production: would trigger actual segment merge here
-                        // For now: count sidecar fields (pretend merge happened)
-                        mergedCount++;
+                // Get fields to merge
+                Set<String> fieldsToMerge = new HashSet<>(registry.getUpdatableFields());
+                if (request.fields() != null) {
+                    fieldsToMerge.retainAll(new HashSet<>(request.fields()));
+                }
+
+                if (fieldsToMerge.isEmpty()) continue;
+
+                // Trigger force merge on the shard to consolidate sidecars into base segments
+                try {
+                    shard.forceMerge(new ForceMergeRequest().maxNumSegments(1));
+                } catch (IOException e) {
+                    logger.warn("Force merge failed for shard {}", shard.shardId(), e);
+                    continue;
+                }
+
+                // After merge: clear sidecar state for merged fields
+                for (String field : fieldsToMerge) {
+                    for (String segment : new ArrayList<>(registry.getSegmentsForField(field))) {
+                        registry.unregister(field, segment);
                     }
+                    mergedCount++;
                 }
             }
 

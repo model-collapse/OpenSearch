@@ -1,7 +1,14 @@
 package org.opensearch.index.engine.sidecar;
 
 import org.apache.lucene.util.FixedBitSet;
+import org.opensearch.common.annotation.ExperimentalApi;
 
+/**
+ * A bitmap tracking which documents in a segment have been updated via sidecar writes.
+ *
+ * @opensearch.experimental
+ */
+@ExperimentalApi
 public class SidecarVersionBitmap {
 
     private final FixedBitSet bits;

@@ -147,6 +147,8 @@ import org.opensearch.index.engine.SafeCommitInfo;
 import org.opensearch.index.engine.Segment;
 import org.opensearch.index.engine.SegmentsStats;
 import org.opensearch.index.engine.dataformat.DataFormatRegistry;
+import org.opensearch.index.engine.sidecar.SidecarAwareDirectoryReader;
+import org.opensearch.index.engine.sidecar.SidecarRegistry;
 import org.opensearch.index.engine.exec.IndexReaderProvider;
 import org.opensearch.index.engine.exec.Indexer;
 import org.opensearch.index.engine.exec.IndexerFactory;
@@ -420,6 +422,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
     private final DataFormatRegistry dataFormatRegistry;
 
+    private final SidecarRegistry sidecarRegistry;
+
     private final Map<String, FormatChecksumStrategy> checksumStrategies;
 
     @InternalApi
@@ -548,8 +552,10 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             cachingPolicy = new IndicesQueryCache.OpenseachUsageTrackingQueryCachingPolicy(clusterApplierService.clusterSettings());
         }
         indexShardOperationPermits = new IndexShardOperationPermits(shardId, threadPool);
+        this.sidecarRegistry = new SidecarRegistry();
+        CheckedFunction<DirectoryReader, DirectoryReader, IOException> baseReaderWrapper;
         if (indexSettings.isDerivedSourceEnabled()) {
-            readerWrapper = reader -> {
+            baseReaderWrapper = reader -> {
                 final DirectoryReader wrappedReader = indexReaderWrapper == null ? reader : indexReaderWrapper.apply(reader);
                 return DerivedSourceDirectoryReader.wrap(
                     wrappedReader,
@@ -557,7 +563,40 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 );
             };
         } else {
-            readerWrapper = indexReaderWrapper;
+            baseReaderWrapper = indexReaderWrapper;
+        }
+        // Compose sidecar-aware layer on top of the base reader wrapper.
+        // When sidecars are active, _source is patched with overlay values for dirty documents.
+        if (baseReaderWrapper != null) {
+            final CheckedFunction<DirectoryReader, DirectoryReader, IOException> delegate = baseReaderWrapper;
+            readerWrapper = reader -> {
+                DirectoryReader wrapped = delegate.apply(reader);
+                if (sidecarRegistry.hasAnySidecars()) {
+                    return SidecarAwareDirectoryReader.wrap(wrapped, (leafReader, docId) -> {
+                        String segmentName = leafReader.toString();
+                        Map<String, Object> overlay = new HashMap<>();
+                        for (String field : sidecarRegistry.getUpdatableFields()) {
+                            overlay.putAll(sidecarRegistry.getSidecarValues(field, segmentName, docId));
+                        }
+                        return overlay.isEmpty() ? null : overlay;
+                    });
+                }
+                return wrapped;
+            };
+        } else {
+            readerWrapper = reader -> {
+                if (sidecarRegistry.hasAnySidecars()) {
+                    return SidecarAwareDirectoryReader.wrap(reader, (leafReader, docId) -> {
+                        String segmentName = leafReader.toString();
+                        Map<String, Object> overlay = new HashMap<>();
+                        for (String field : sidecarRegistry.getUpdatableFields()) {
+                            overlay.putAll(sidecarRegistry.getSidecarValues(field, segmentName, docId));
+                        }
+                        return overlay.isEmpty() ? null : overlay;
+                    });
+                }
+                return reader;
+            };
         }
 
         nonClosingReaderWrapperSupplier = directoryReader -> {
@@ -697,6 +736,13 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
     public MapperService mapperService() {
         return mapperService;
+    }
+
+    /**
+     * Returns the per-shard sidecar registry that tracks active sidecar bitmaps.
+     */
+    public SidecarRegistry sidecarRegistry() {
+        return sidecarRegistry;
     }
 
     public SearchOperationListener getSearchOperationListener() {

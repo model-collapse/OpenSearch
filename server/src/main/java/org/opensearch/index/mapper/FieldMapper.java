@@ -369,6 +369,15 @@ public abstract class FieldMapper extends Mapper implements Cloneable {
         return false;
     }
 
+    /**
+     * Returns whether this field is marked as dropped.
+     * When dropped, field data is excluded during segment merges, gradually reclaiming storage.
+     * Subclasses that support the dropped lifecycle should override this method.
+     */
+    public boolean isDropped() {
+        return false;
+    }
+
     private void extractGroupingCriteriaParams(ParseContext context) throws IOException {
         if (context.docMapper() != null && context.docMapper().mappers() != null) {
             final Mapper mapper = context.docMapper().mappers().getMapper(ContextAwareGroupingFieldMapper.CONTENT_TYPE);

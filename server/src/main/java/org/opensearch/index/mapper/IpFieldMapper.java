@@ -111,6 +111,9 @@ public class IpFieldMapper extends ParametrizedFieldMapper {
         private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
             .setMergeValidator((prev, toMerge) -> !prev || toMerge);
 
+        private final Parameter<Boolean> dropped = Parameter.boolParam("dropped", true, m -> toType(m).dropped, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
 
         private final boolean ignoreMalformedByDefault;
@@ -155,7 +158,7 @@ public class IpFieldMapper extends ParametrizedFieldMapper {
 
         @Override
         protected List<Parameter<?>> getParameters() {
-            return Arrays.asList(indexed, hasDocValues, stored, ignoreMalformed, nullValue, meta, updatable);
+            return Arrays.asList(indexed, hasDocValues, stored, ignoreMalformed, nullValue, meta, updatable, dropped);
         }
 
         @Override
@@ -602,6 +605,7 @@ public class IpFieldMapper extends ParametrizedFieldMapper {
     private final boolean ignoreMalformedByDefault;
     private final Version indexCreatedVersion;
     private final boolean updatable;
+    private final boolean dropped;
 
     private IpFieldMapper(String simpleName, MappedFieldType mappedFieldType, MultiFields multiFields, CopyTo copyTo, Builder builder) {
         super(simpleName, mappedFieldType, multiFields, copyTo);
@@ -614,11 +618,17 @@ public class IpFieldMapper extends ParametrizedFieldMapper {
         this.nullValueAsString = builder.nullValue.getValue();
         this.indexCreatedVersion = builder.indexCreatedVersion;
         this.updatable = builder.updatable.getValue();
+        this.dropped = builder.dropped.getValue();
     }
 
     @Override
     public boolean isUpdatable() {
         return updatable;
+    }
+
+    @Override
+    public boolean isDropped() {
+        return dropped;
     }
 
     @Override

@@ -125,6 +125,9 @@ public class BooleanFieldMapper extends ParametrizedFieldMapper {
         private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
             .setMergeValidator((prev, toMerge) -> !prev || toMerge);
 
+        private final Parameter<Boolean> dropped = Parameter.boolParam("dropped", true, m -> toType(m).dropped, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Float> boost = Parameter.boostParam();
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
 
@@ -134,7 +137,7 @@ public class BooleanFieldMapper extends ParametrizedFieldMapper {
 
         @Override
         protected List<Parameter<?>> getParameters() {
-            return Arrays.asList(meta, boost, docValues, indexed, nullValue, stored, updatable);
+            return Arrays.asList(meta, boost, docValues, indexed, nullValue, stored, updatable, dropped);
         }
 
         @Override
@@ -352,6 +355,7 @@ public class BooleanFieldMapper extends ParametrizedFieldMapper {
     private final boolean hasDocValues;
     private final boolean stored;
     private final boolean updatable;
+    private final boolean dropped;
 
     protected BooleanFieldMapper(
         String simpleName,
@@ -366,11 +370,17 @@ public class BooleanFieldMapper extends ParametrizedFieldMapper {
         this.indexed = builder.indexed.getValue();
         this.hasDocValues = builder.docValues.getValue();
         this.updatable = builder.updatable.getValue();
+        this.dropped = builder.dropped.getValue();
     }
 
     @Override
     public boolean isUpdatable() {
         return updatable;
+    }
+
+    @Override
+    public boolean isDropped() {
+        return dropped;
     }
 
     @Override

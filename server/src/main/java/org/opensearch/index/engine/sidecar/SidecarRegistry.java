@@ -85,4 +85,21 @@ public class SidecarRegistry {
     public boolean hasAnySidecars() {
         return !activeBitmaps.isEmpty();
     }
+
+    /**
+     * Returns the total number of dirty documents across all segments for a given field.
+     */
+    public long getDirtyDocCount(String fieldName) {
+        ConcurrentHashMap<String, SidecarVersionBitmap> segments = activeBitmaps.get(fieldName);
+        if (segments == null) return 0;
+        return segments.values().stream().mapToLong(SidecarVersionBitmap::cardinality).sum();
+    }
+
+    /**
+     * Returns the number of segments that have sidecar bitmaps for a given field.
+     */
+    public int getSegmentCount(String fieldName) {
+        ConcurrentHashMap<String, SidecarVersionBitmap> segments = activeBitmaps.get(fieldName);
+        return segments != null ? segments.size() : 0;
+    }
 }

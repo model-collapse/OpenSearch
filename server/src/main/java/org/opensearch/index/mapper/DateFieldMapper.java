@@ -282,6 +282,9 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
         private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
             .setMergeValidator((prev, toMerge) -> !prev || toMerge);
 
+        private final Parameter<Boolean> dropped = Parameter.boolParam("dropped", true, m -> toType(m).dropped, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Float> boost = Parameter.boostParam();
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
 
@@ -349,7 +352,7 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
 
         @Override
         protected List<Parameter<?>> getParameters() {
-            return Arrays.asList(index, docValues, store, skiplist, format, printFormat, locale, nullValue, ignoreMalformed, boost, meta, updatable);
+            return Arrays.asList(index, docValues, store, skiplist, format, printFormat, locale, nullValue, ignoreMalformed, boost, meta, updatable, dropped);
         }
 
         private Long parseNullValue(DateFieldType fieldType) {
@@ -769,6 +772,7 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
     private final boolean ignoreMalformedByDefault;
     private final Version indexCreatedVersion;
     private final boolean updatable;
+    private final boolean dropped;
 
     private DateFieldMapper(
         String simpleName,
@@ -795,11 +799,17 @@ public final class DateFieldMapper extends ParametrizedFieldMapper {
         this.ignoreMalformedByDefault = builder.ignoreMalformed.getDefaultValue().value();
         this.indexCreatedVersion = builder.indexCreatedVersion;
         this.updatable = builder.updatable.getValue();
+        this.dropped = builder.dropped.getValue();
     }
 
     @Override
     public boolean isUpdatable() {
         return updatable;
+    }
+
+    @Override
+    public boolean isDropped() {
+        return dropped;
     }
 
     @Override

@@ -138,6 +138,9 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
         private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
             .setMergeValidator((prev, toMerge) -> !prev || toMerge);
 
+        private final Parameter<Boolean> dropped = Parameter.boolParam("dropped", true, m -> toType(m).dropped, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
 
         private final NumberType type;
@@ -183,7 +186,7 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
 
         @Override
         protected List<Parameter<?>> getParameters() {
-            return Arrays.asList(indexed, hasDocValues, stored, skiplist, ignoreMalformed, coerce, nullValue, meta, updatable);
+            return Arrays.asList(indexed, hasDocValues, stored, skiplist, ignoreMalformed, coerce, nullValue, meta, updatable, dropped);
         }
 
         @Override
@@ -2125,6 +2128,7 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
     private final boolean ignoreMalformedByDefault;
     private final boolean coerceByDefault;
     private final boolean updatable;
+    private final boolean dropped;
 
     private NumberFieldMapper(String simpleName, MappedFieldType mappedFieldType, MultiFields multiFields, CopyTo copyTo, Builder builder) {
         super(simpleName, mappedFieldType, multiFields, copyTo);
@@ -2139,6 +2143,7 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
         this.ignoreMalformedByDefault = builder.ignoreMalformed.getDefaultValue().value();
         this.coerceByDefault = builder.coerce.getDefaultValue().value();
         this.updatable = builder.updatable.getValue();
+        this.dropped = builder.dropped.getValue();
     }
 
     boolean coerce() {
@@ -2148,6 +2153,11 @@ public class NumberFieldMapper extends ParametrizedFieldMapper {
     @Override
     public boolean isUpdatable() {
         return updatable;
+    }
+
+    @Override
+    public boolean isDropped() {
+        return dropped;
     }
 
     @Override

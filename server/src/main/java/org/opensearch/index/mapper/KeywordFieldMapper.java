@@ -173,6 +173,9 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
         private final Parameter<Boolean> updatable = Parameter.boolParam("updatable", true, m -> toType(m).updatable, false)
             .setMergeValidator((prev, toMerge) -> !prev || toMerge);
 
+        private final Parameter<Boolean> dropped = Parameter.boolParam("dropped", true, m -> toType(m).dropped, false)
+            .setMergeValidator((prev, toMerge) -> !prev || toMerge);
+
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
         private final Parameter<Float> boost = Parameter.boostParam();
 
@@ -224,7 +227,8 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
                 splitQueriesOnWhitespace,
                 boost,
                 meta,
-                updatable
+                updatable,
+                dropped
             );
         }
 
@@ -813,6 +817,7 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
     private final String normalizerName;
     private final boolean splitQueriesOnWhitespace;
     private final boolean updatable;
+    private final boolean dropped;
 
     private final IndexAnalyzers indexAnalyzers;
 
@@ -838,6 +843,7 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
         this.normalizerName = builder.normalizer.getValue();
         this.splitQueriesOnWhitespace = builder.splitQueriesOnWhitespace.getValue();
         this.updatable = builder.updatable.getValue();
+        this.dropped = builder.dropped.getValue();
 
         this.indexAnalyzers = builder.indexAnalyzers;
     }
@@ -860,6 +866,11 @@ public final class KeywordFieldMapper extends ParametrizedFieldMapper {
     @Override
     public boolean isUpdatable() {
         return updatable;
+    }
+
+    @Override
+    public boolean isDropped() {
+        return dropped;
     }
 
     @Override

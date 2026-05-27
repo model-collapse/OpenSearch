@@ -81,6 +81,7 @@ public class ReindexModulePlugin extends Plugin implements ActionPlugin, Extensi
             new ActionHandler<>(ReindexAction.INSTANCE, TransportReindexAction.class),
             new ActionHandler<>(UpdateByQueryAction.INSTANCE, TransportUpdateByQueryAction.class),
             new ActionHandler<>(DeleteByQueryAction.INSTANCE, TransportDeleteByQueryAction.class),
+            new ActionHandler<>(UpdateFieldsByQueryAction.INSTANCE, TransportUpdateFieldsByQueryAction.class),
             new ActionHandler<>(RethrottleAction.INSTANCE, TransportRethrottleAction.class)
         );
     }
@@ -106,6 +107,7 @@ public class ReindexModulePlugin extends Plugin implements ActionPlugin, Extensi
             new RestReindexAction(),
             new RestUpdateByQueryAction(),
             new RestDeleteByQueryAction(),
+            new RestUpdateFieldsByQueryAction(),
             new RestRethrottleAction(nodesInCluster)
         );
     }

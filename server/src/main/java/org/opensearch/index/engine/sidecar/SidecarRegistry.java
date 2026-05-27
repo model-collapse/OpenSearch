@@ -152,20 +152,23 @@ public class SidecarRegistry {
     private Map<String, Object> extractFieldValue(LeafReader leaf, int sidecarDocId, String fieldName) throws IOException {
         // Try vector field
         FloatVectorValues vectors = leaf.getFloatVectorValues(fieldName);
-        if (vectors != null && vectors.advance(sidecarDocId) == sidecarDocId) {
-            float[] vec = vectors.vectorValue();
-            List<Double> vecList = new ArrayList<>(vec.length);
-            for (float v : vec) {
-                vecList.add((double) v);
+        if (vectors != null) {
+            var iter = vectors.iterator();
+            if (iter.advance(sidecarDocId) == sidecarDocId) {
+                float[] vec = vectors.vectorValue(iter.index());
+                List<Double> vecList = new ArrayList<>(vec.length);
+                for (float v : vec) {
+                    vecList.add((double) v);
+                }
+                return Map.of(fieldName, vecList);
             }
-            return Map.of(fieldName, vecList);
         }
 
         // Try sorted set doc values (keyword)
         SortedSetDocValues ssdv = leaf.getSortedSetDocValues(fieldName);
         if (ssdv != null && ssdv.advanceExact(sidecarDocId)) {
             long ord = ssdv.nextOrd();
-            if (ord != SortedSetDocValues.NO_MORE_ORDS) {
+            if (ord != SortedSetDocValues.NO_MORE_DOCS) {
                 return Map.of(fieldName, ssdv.lookupOrd(ord).utf8ToString());
             }
         }

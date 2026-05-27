@@ -135,7 +135,11 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
                             // Register bitmap in SidecarRegistry so reads see dirty docs
                             if (result != null) {
                                 SidecarRegistry registry = primary.sidecarRegistry();
-                                registry.register(request.field(), resolveSegmentName(reader), writer.getVersionBitmap());
+                                String segmentName = resolveSegmentName(reader);
+                                registry.register(request.field(), segmentName, writer.getVersionBitmap(), sidecarDir);
+                                // Register files for snapshot/replication
+                                String fileKey = request.field() + ":" + segmentName;
+                                registry.registerFiles(fileKey, result.files());
                             }
                         }
                     }
@@ -165,7 +169,11 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
                             // Register bitmap in SidecarRegistry so reads see dirty docs
                             if (result != null) {
                                 SidecarRegistry registry = primary.sidecarRegistry();
-                                registry.register(request.field(), resolveSegmentName(reader), writer.getVersionBitmap());
+                                String segmentName = resolveSegmentName(reader);
+                                registry.register(request.field(), segmentName, writer.getVersionBitmap(), sidecarDir);
+                                // Register files for snapshot/replication
+                                String fileKey = request.field() + ":" + segmentName;
+                                registry.registerFiles(fileKey, result.files());
                             }
                         }
                     }

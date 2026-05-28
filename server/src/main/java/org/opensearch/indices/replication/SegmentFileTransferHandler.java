@@ -12,6 +12,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.IndexFileNames;
+import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.ArrayUtil;
@@ -94,6 +95,28 @@ public final class SegmentFileTransferHandler {
         IntSupplier translogOps,
         ActionListener<Void> listener
     ) {
+        return createTransfer(store, store.directory(), files, translogOps, listener);
+    }
+
+    /**
+     * Returns a closeable {@link MultiChunkTransfer} to initiate sending a list of files,
+     * using a custom directory for file I/O. This overload enables sidecar-aware directories
+     * to be used for reading files from subdirectories during segment replication.
+     *
+     * @param store {@link Store} for error handling
+     * @param directory {@link Directory} to use for reading files
+     * @param files {@link StoreFileMetadata[]}
+     * @param translogOps {@link IntSupplier}
+     * @param listener {@link ActionListener}
+     * @return {@link MultiChunkTransfer}
+     */
+    public MultiChunkTransfer<StoreFileMetadata, FileChunk> createTransfer(
+        Store store,
+        Directory directory,
+        StoreFileMetadata[] files,
+        IntSupplier translogOps,
+        ActionListener<Void> listener
+    ) {
         ArrayUtil.timSort(files, Comparator.comparingLong(StoreFileMetadata::length)); // send smallest first
         return new MultiChunkTransfer<>(logger, threadPool.getThreadContext(), listener, maxConcurrentFileChunks, Arrays.asList(files)) {
 
@@ -110,7 +133,7 @@ public final class SegmentFileTransferHandler {
                 // Segments* files require IOContext.READONCE
                 // https://github.com/apache/lucene/blob/b2d3a2b37e00f19a74949097736be8fd64745f61/lucene/test-framework/src/java/org/apache/lucene/tests/store/MockDirectoryWrapper.java#L817
                 if (md.name().startsWith(IndexFileNames.SEGMENTS) == false) {
-                    final IndexInput indexInput = store.directory().openInput(md.name(), IOContext.DEFAULT);
+                    final IndexInput indexInput = directory.openInput(md.name(), IOContext.DEFAULT);
                     currentInput = new InputStreamIndexInput(indexInput, md.length()) {
                         @Override
                         public void close() throws IOException {
@@ -152,7 +175,7 @@ public final class SegmentFileTransferHandler {
             private int readBytes(StoreFileMetadata md, byte[] buffer) throws IOException {
                 // if we don't have a currentInput by now open once to create the chunk.
                 if (currentInput == null) {
-                    try (IndexInput indexInput = store.directory().openInput(md.name(), IOContext.READONCE)) {
+                    try (IndexInput indexInput = directory.openInput(md.name(), IOContext.READONCE)) {
                         try (InputStreamIndexInput in = new InputStreamIndexInput(indexInput, md.length())) {
                             in.skip(offset);
                             return in.read(buffer);

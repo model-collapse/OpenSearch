@@ -2189,14 +2189,15 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             return latestReplicationCheckpoint;
         }
         final Map<String, StoreFileMetadata> metadataMap = store.getSegmentMetadataMap(segmentInfos);
+        final Map<String, StoreFileMetadata> effectiveMap = augmentWithSidecarFiles(metadataMap);
         final ReplicationCheckpoint checkpoint = new ReplicationCheckpoint(
             this.shardId,
             getOperationPrimaryTerm(),
             segmentInfos.getGeneration(),
             segmentInfos.getVersion(),
-            metadataMap.values().stream().mapToLong(StoreFileMetadata::length).sum(),
+            effectiveMap.values().stream().mapToLong(StoreFileMetadata::length).sum(),
             getIndexer().config().getCodec().getName(),
-            metadataMap
+            effectiveMap
         );
         logger.trace("Recomputed ReplicationCheckpoint for shard {}", checkpoint);
         return checkpoint;
@@ -2227,14 +2228,15 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             return latestReplicationCheckpoint;
         }
         final Map<String, StoreFileMetadata> metadataMap = store.getSegmentMetadataMap(catalogSnapshot);
+        final Map<String, StoreFileMetadata> effectiveMap = augmentWithSidecarFiles(metadataMap);
         final ReplicationCheckpoint checkpoint = new ReplicationCheckpoint(
             this.shardId,
             getOperationPrimaryTerm(),
             segmentsGen,
             catalogSnapshot.getVersion(),
-            metadataMap.values().stream().mapToLong(StoreFileMetadata::length).sum(),
+            effectiveMap.values().stream().mapToLong(StoreFileMetadata::length).sum(),
             getIndexer().config().getCodec().getName(),
-            metadataMap
+            effectiveMap
         );
         logger.trace("Recomputed ReplicationCheckpoint from CatalogSnapshot for shard {}", checkpoint);
         return checkpoint;
@@ -2470,8 +2472,81 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      */
     public Map<String, StoreFileMetadata> getSegmentMetadataMap() throws IOException {
         try (GatedCloseable<CatalogSnapshot> snapshot = getCatalogSnapshot()) {
-            return store.getSegmentMetadataMap(snapshot.get());
+            Map<String, StoreFileMetadata> metadataMap = store.getSegmentMetadataMap(snapshot.get());
+            // Include sidecar files in the metadata map so that segment replication
+            // can discover and transfer them to replicas.
+            if (sidecarRegistry != null && sidecarRegistry.hasAnySidecars()) {
+                Set<String> sidecarFiles = sidecarRegistry.getAllSidecarFiles();
+                if (!sidecarFiles.isEmpty()) {
+                    Map<String, StoreFileMetadata> augmented = new HashMap<>(metadataMap);
+                    java.nio.file.Path indexDir = shardPath().resolveIndex();
+                    for (String sidecarFile : sidecarFiles) {
+                        if (!augmented.containsKey(sidecarFile)) {
+                            try {
+                                java.nio.file.Path filePath = indexDir.resolve(sidecarFile);
+                                long length = java.nio.file.Files.size(filePath);
+                                // Use a simple checksum based on length and modification time
+                                // for sidecar files which may not have Lucene codec footers
+                                long lastModified = java.nio.file.Files.getLastModifiedTime(filePath).toMillis();
+                                String checksum = Store.digestToString(length ^ lastModified);
+                                augmented.put(
+                                    sidecarFile,
+                                    new StoreFileMetadata(sidecarFile, length, checksum, org.opensearch.Version.CURRENT.luceneVersion)
+                                );
+                            } catch (java.nio.file.NoSuchFileException e) {
+                                // Sidecar file may have been cleaned up; skip it
+                                logger.debug("Sidecar file [{}] not found, skipping", sidecarFile);
+                            }
+                        }
+                    }
+                    return augmented;
+                }
+            }
+            return metadataMap;
         }
+    }
+
+    /**
+     * Augments a segment metadata map with sidecar file entries. Sidecar files are stored in
+     * subdirectories of the index directory and are tracked by the {@link SidecarRegistry}.
+     * This method computes metadata (length and checksum) for each sidecar file and adds
+     * them to the map so that segment replication can discover and transfer them.
+     *
+     * @param baseMap the original metadata map from SegmentInfos or CatalogSnapshot
+     * @return the augmented map including sidecar files, or the original map if no sidecars exist
+     */
+    private Map<String, StoreFileMetadata> augmentWithSidecarFiles(Map<String, StoreFileMetadata> baseMap) {
+        if (sidecarRegistry == null || !sidecarRegistry.hasAnySidecars()) {
+            return baseMap;
+        }
+        Set<String> sidecarFiles = sidecarRegistry.getAllSidecarFiles();
+        if (sidecarFiles.isEmpty()) {
+            return baseMap;
+        }
+        Map<String, StoreFileMetadata> augmented = new HashMap<>(baseMap);
+        java.nio.file.Path indexDir = shardPath().resolveIndex();
+        for (String sidecarFile : sidecarFiles) {
+            if (!augmented.containsKey(sidecarFile)) {
+                try {
+                    java.nio.file.Path filePath = indexDir.resolve(sidecarFile);
+                    long length = java.nio.file.Files.size(filePath);
+                    // Use a composite checksum based on length and modification time for sidecar
+                    // files which may not have Lucene codec footers.
+                    long lastModified = java.nio.file.Files.getLastModifiedTime(filePath).toMillis();
+                    String checksum = Store.digestToString(length ^ lastModified);
+                    augmented.put(
+                        sidecarFile,
+                        new StoreFileMetadata(sidecarFile, length, checksum, org.opensearch.Version.CURRENT.luceneVersion)
+                    );
+                } catch (java.nio.file.NoSuchFileException e) {
+                    // Sidecar file may have been cleaned up; skip it
+                    logger.debug("Sidecar file [{}] not found during metadata augmentation, skipping", sidecarFile);
+                } catch (IOException e) {
+                    logger.warn("Failed to compute metadata for sidecar file [{}]: {}", sidecarFile, e.getMessage());
+                }
+            }
+        }
+        return augmented;
     }
 
     /**

@@ -9,6 +9,7 @@
 package org.opensearch.indices.replication;
 
 import org.apache.logging.log4j.Logger;
+import org.apache.lucene.store.Directory;
 import org.opensearch.OpenSearchException;
 import org.opensearch.action.StepListener;
 import org.opensearch.cluster.node.DiscoveryNode;
@@ -20,6 +21,8 @@ import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.index.shard.IndexShard;
+import org.opensearch.index.store.SidecarAwareDirectory;
+import org.opensearch.index.store.Store;
 import org.opensearch.index.store.StoreFileMetadata;
 import org.opensearch.indices.recovery.FileChunkWriter;
 import org.opensearch.indices.recovery.MultiChunkTransfer;
@@ -30,6 +33,7 @@ import org.opensearch.transport.Transports;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -146,14 +150,24 @@ class SegmentReplicationSourceHandler {
             cancellableThreads.checkForCancel();
 
             final StepListener<Void> sendFileStep = new StepListener<>();
-            Set<String> storeFiles = new HashSet<>(Arrays.asList(shard.store().directory().listAll()));
+            // Use SidecarAwareDirectory to list files including those in sidecar subdirectories,
+            // enabling segment replication to discover and transfer sidecar files.
+            final Store store = shard.store();
+            final Directory directory;
+            if (shard.sidecarRegistry() != null && shard.sidecarRegistry().hasAnySidecars()) {
+                Path indexDir = shard.shardPath().resolveIndex();
+                directory = new SidecarAwareDirectory(store.directory(), indexDir);
+            } else {
+                directory = store.directory();
+            }
+            Set<String> storeFiles = new HashSet<>(Arrays.asList(directory.listAll()));
             final StoreFileMetadata[] storeFileMetadata = request.getFilesToFetch()
                 .stream()
                 .filter(file -> storeFiles.contains(file.name()))
                 .toArray(StoreFileMetadata[]::new);
 
             final MultiChunkTransfer<StoreFileMetadata, SegmentFileTransferHandler.FileChunk> transfer = segmentFileTransferHandler
-                .createTransfer(shard.store(), storeFileMetadata, () -> 0, sendFileStep);
+                .createTransfer(store, directory, storeFileMetadata, () -> 0, sendFileStep);
             resources.add(transfer);
             cancellableThreads.checkForCancel();
             transfer.start();

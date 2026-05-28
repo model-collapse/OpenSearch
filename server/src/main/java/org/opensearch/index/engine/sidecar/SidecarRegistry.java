@@ -294,9 +294,28 @@ public class SidecarRegistry {
     /**
      * Registers the set of files produced by a sidecar flush for a given segment key.
      * The segment key is typically "fieldName:segmentName".
+     * Files are stored as bare filenames (without directory prefix).
      */
     public void registerFiles(String segmentKey, Set<String> files) {
         sidecarFiles.computeIfAbsent(segmentKey, k -> ConcurrentHashMap.newKeySet()).addAll(files);
+    }
+
+    /**
+     * Registers the set of files produced by a sidecar flush for a given segment key,
+     * prefixing each filename with the sidecar subdirectory name. This enables segment
+     * replication to locate and transfer sidecar files from their subdirectory within
+     * the index directory.
+     *
+     * @param segmentKey the key (typically "fieldName:segmentName")
+     * @param files bare filenames produced by the sidecar writer
+     * @param sidecarDirName the subdirectory name (e.g., "_sidecar_embedding_12345")
+     */
+    public void registerFiles(String segmentKey, Set<String> files, String sidecarDirName) {
+        Set<String> prefixedFiles = new HashSet<>();
+        for (String file : files) {
+            prefixedFiles.add(sidecarDirName + "/" + file);
+        }
+        sidecarFiles.computeIfAbsent(segmentKey, k -> ConcurrentHashMap.newKeySet()).addAll(prefixedFiles);
     }
 
     /**

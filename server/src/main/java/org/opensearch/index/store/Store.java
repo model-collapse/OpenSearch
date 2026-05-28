@@ -591,14 +591,27 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             for (Map.Entry<String, String> entry : entries) {
                 String tempFile = entry.getKey();
                 String origFile = entry.getValue();
-                // first, go and delete the existing ones
-                try {
-                    directory().deleteFile(origFile);
-                } catch (FileNotFoundException | NoSuchFileException e) {} catch (Exception ex) {
-                    logger.debug(() -> new ParameterizedMessage("failed to delete file [{}]", origFile), ex);
+                if (tempFile.contains("/") && shardPath != null) {
+                    // Sidecar files in subdirectories: rename using filesystem directly
+                    java.nio.file.Path indexDir = shardPath.resolveIndex();
+                    java.nio.file.Path tempPath = indexDir.resolve(tempFile);
+                    java.nio.file.Path origPath = indexDir.resolve(origFile);
+                    try {
+                        java.nio.file.Files.deleteIfExists(origPath);
+                    } catch (Exception ex) {
+                        logger.debug(() -> new ParameterizedMessage("failed to delete sidecar file [{}]", origFile), ex);
+                    }
+                    java.nio.file.Files.move(tempPath, origPath, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } else {
+                    // first, go and delete the existing ones
+                    try {
+                        directory().deleteFile(origFile);
+                    } catch (FileNotFoundException | NoSuchFileException e) {} catch (Exception ex) {
+                        logger.debug(() -> new ParameterizedMessage("failed to delete file [{}]", origFile), ex);
+                    }
+                    // now, rename the files... and fail it it won't work
+                    directory().rename(tempFile, origFile);
                 }
-                // now, rename the files... and fail it it won't work
-                directory().rename(tempFile, origFile);
                 final String remove = tempFileMap.remove(tempFile);
                 assert remove != null;
             }
@@ -762,7 +775,18 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
      */
     public IndexOutput createVerifyingOutput(String fileName, final StoreFileMetadata metadata, final IOContext context)
         throws IOException {
-        IndexOutput output = directory().createOutput(fileName, context);
+        IndexOutput output;
+        if (fileName.contains("/") && shardPath != null) {
+            // Sidecar files with subdirectory paths need the parent directory created
+            java.nio.file.Path filePath = shardPath.resolveIndex().resolve(fileName);
+            java.nio.file.Files.createDirectories(filePath.getParent());
+            java.nio.file.Path parentDir = filePath.getParent();
+            String baseName = filePath.getFileName().toString();
+            Directory subDir = org.apache.lucene.store.FSDirectory.open(parentDir);
+            output = subDir.createOutput(baseName, context);
+        } else {
+            output = directory().createOutput(fileName, context);
+        }
         boolean success = false;
         try {
             assert metadata.writtenBy() != null;

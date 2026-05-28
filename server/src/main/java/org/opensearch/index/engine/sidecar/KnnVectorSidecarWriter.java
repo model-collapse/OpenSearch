@@ -41,7 +41,7 @@ public class KnnVectorSidecarWriter implements SidecarWriter<float[]> {
     private final Directory luceneDir;
     private final IndexWriter writer;
     private SidecarVersionBitmap bitmap;
-    private int docsAdded = 0;
+    private int docsWritten = 0;
 
     /**
      * Creates a writer with the default COSINE similarity.
@@ -83,9 +83,9 @@ public class KnnVectorSidecarWriter implements SidecarWriter<float[]> {
         doc.add(new StoredField(DOC_ID_FIELD, docId));
         writer.addDocument(doc);
 
-        ensureBitmapCapacity(docId + 1);
+        bitmap = bitmap.growTo(docId + 1);
         bitmap.set(docId);
-        docsAdded++;
+        docsWritten++;
     }
 
     @Override
@@ -95,7 +95,7 @@ public class KnnVectorSidecarWriter implements SidecarWriter<float[]> {
 
     @Override
     public int docsWritten() {
-        return docsAdded();
+        return docsWritten;
     }
 
     /**
@@ -104,7 +104,7 @@ public class KnnVectorSidecarWriter implements SidecarWriter<float[]> {
      */
     @Override
     public SidecarWriter.SidecarWriteResult flush() throws IOException {
-        if (docsAdded == 0) {
+        if (docsWritten == 0) {
             return null;
         }
 
@@ -117,7 +117,7 @@ public class KnnVectorSidecarWriter implements SidecarWriter<float[]> {
             }
         }
 
-        return new SidecarWriter.SidecarWriteResult(directory.toString(), generation, files, docsAdded, bitmap);
+        return new SidecarWriter.SidecarWriteResult(directory.toString(), generation, files, docsWritten, bitmap);
     }
 
     @Override
@@ -128,23 +128,6 @@ public class KnnVectorSidecarWriter implements SidecarWriter<float[]> {
     @Override
     public long generation() {
         return generation;
-    }
-
-    public int docsAdded() {
-        return docsAdded;
-    }
-
-    private void ensureBitmapCapacity(int requiredSize) {
-        if (requiredSize > bitmap.maxDoc()) {
-            int newSize = (int) Math.min((long) bitmap.maxDoc() * 2, Integer.MAX_VALUE - 1);
-            newSize = Math.max(newSize, requiredSize);
-            SidecarVersionBitmap newBitmap = new SidecarVersionBitmap(newSize);
-            // Copy existing set bits from old bitmap to new bitmap using nextSetBit
-            for (int doc = bitmap.nextSetBit(0); doc != -1 && doc < bitmap.maxDoc(); doc = bitmap.nextSetBit(doc + 1)) {
-                newBitmap.set(doc);
-            }
-            bitmap = newBitmap;
-        }
     }
 
     @Override

@@ -12,6 +12,8 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.Set;
 
+import org.opensearch.common.Nullable;
+
 /**
  * Common interface for all sidecar writers (knn vectors, doc_values, inverted-index).
  * Each implementation writes auxiliary data alongside the main Lucene segments.
@@ -22,6 +24,11 @@ public interface SidecarWriter<T> extends Closeable {
 
     void write(int docId, T value) throws IOException;
 
+    /**
+     * Flushes buffered writes and returns metadata about the produced files,
+     * or {@code null} if no documents have been written.
+     */
+    @Nullable
     SidecarWriteResult flush() throws IOException;
 
     SidecarVersionBitmap getVersionBitmap();

@@ -108,16 +108,16 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
         }
     }
 
-    public void testDocsAddedCount() throws Exception {
+    public void testDocsWrittenCount() throws Exception {
         Path tmpDir = createTempDir();
         try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 16, 1)) {
-            assertEquals(0, writer.docsAdded());
+            assertEquals(0, writer.docsWritten());
             float[] v = new float[16];
             for (int i = 0; i < 16; i++) v[i] = randomFloat() + 0.01f;
             writer.addVector(5, v);
-            assertEquals(1, writer.docsAdded());
+            assertEquals(1, writer.docsWritten());
             writer.addVector(10, v);
-            assertEquals(2, writer.docsAdded());
+            assertEquals(2, writer.docsWritten());
         }
     }
 
@@ -134,7 +134,7 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
         }
     }
 
-    public void testDocsWrittenDelegatesToDocsAdded() throws Exception {
+    public void testDocsWrittenViaWriteInterface() throws Exception {
         Path tmpDir = createTempDir();
         try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(tmpDir, 16, 1)) {
             assertEquals(0, writer.docsWritten());
@@ -142,7 +142,6 @@ public class KnnVectorSidecarWriterTests extends OpenSearchTestCase {
             for (int i = 0; i < 16; i++) v[i] = randomFloat() + 0.01f;
             writer.write(5, v);
             assertEquals(1, writer.docsWritten());
-            assertEquals(writer.docsAdded(), writer.docsWritten());
         }
     }
 

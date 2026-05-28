@@ -6,7 +6,11 @@ import org.apache.lucene.util.FixedBitSet;
 import org.opensearch.common.annotation.ExperimentalApi;
 
 /**
- * A bitmap tracking which documents in a segment have been updated via sidecar writes.
+ * Tracks which document IDs have been updated via sidecar writes (dirty-bit bitmap).
+ * Named "version" bitmap for historical reasons; functionally a dirty-bit tracker.
+ * Backed by Lucene's {@link FixedBitSet} for O(1) get/set operations.
+ * Thread-safety: instances are NOT thread-safe. Use external synchronization
+ * or publish via volatile reference for cross-thread visibility.
  *
  * @opensearch.experimental
  */
@@ -43,11 +47,27 @@ public class SidecarVersionBitmap {
     }
 
     public long[] getBits() {
-        return bits.getBits();
+        long[] internal = bits.getBits();
+        return Arrays.copyOf(internal, internal.length);
     }
 
     public int nextSetBit(int from) {
         return bits.nextSetBit(from);
+    }
+
+    /**
+     * Returns a new bitmap grown to at least {@code requiredSize} capacity, copying all set bits.
+     * If the current capacity is already sufficient, returns {@code this}.
+     */
+    public SidecarVersionBitmap growTo(int requiredSize) {
+        if (requiredSize <= maxDoc) return this;
+        int newSize = (int) Math.min((long) maxDoc * 2, Integer.MAX_VALUE - 1);
+        newSize = Math.max(newSize, requiredSize);
+        SidecarVersionBitmap newBitmap = new SidecarVersionBitmap(newSize);
+        for (int doc = bits.nextSetBit(0); doc != -1 && doc < maxDoc; doc = bits.nextSetBit(doc + 1)) {
+            newBitmap.set(doc);
+        }
+        return newBitmap;
     }
 
     public SidecarVersionBitmap remap(int[] oldToNew, int newMaxDoc) {

@@ -92,7 +92,7 @@ public class InvertedIndexSidecarWriter implements SidecarWriter<String> {
         doc.add(new StoredField(DOC_ID_FIELD, docId));
         writer.addDocument(doc);
 
-        ensureBitmapCapacity(docId + 1);
+        bitmap = bitmap.growTo(docId + 1);
         bitmap.set(docId);
         docsWritten++;
     }
@@ -142,15 +142,4 @@ public class InvertedIndexSidecarWriter implements SidecarWriter<String> {
         return analyzer;
     }
 
-    private void ensureBitmapCapacity(int requiredSize) {
-        if (requiredSize > bitmap.maxDoc()) {
-            int newSize = (int) Math.min((long) bitmap.maxDoc() * 2, Integer.MAX_VALUE - 1);
-            newSize = Math.max(newSize, requiredSize);
-            SidecarVersionBitmap newBitmap = new SidecarVersionBitmap(newSize);
-            for (int doc = bitmap.nextSetBit(0); doc != -1 && doc < bitmap.maxDoc(); doc = bitmap.nextSetBit(doc + 1)) {
-                newBitmap.set(doc);
-            }
-            bitmap = newBitmap;
-        }
-    }
 }

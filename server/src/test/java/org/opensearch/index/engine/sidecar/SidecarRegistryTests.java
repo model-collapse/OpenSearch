@@ -27,6 +27,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SidecarRegistryTests extends OpenSearchTestCase {
 
@@ -428,5 +431,39 @@ public class SidecarRegistryTests extends OpenSearchTestCase {
 
         // After unregister, the path should be gone
         assertNull(registry.getSidecarPath("price", "_0"));
+    }
+
+    public void testConcurrentRegisterAndRead() throws Exception {
+        SidecarRegistry registry = new SidecarRegistry();
+        int numThreads = 10;
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(numThreads);
+        AtomicInteger errors = new AtomicInteger(0);
+
+        for (int t = 0; t < numThreads; t++) {
+            final int threadId = t;
+            new Thread(() -> {
+                try {
+                    start.await();
+                    // Each thread registers and reads its own segment
+                    String segment = "_seg" + threadId;
+                    SidecarVersionBitmap bitmap = new SidecarVersionBitmap(100);
+                    bitmap.set(threadId);
+                    registry.register("field1", segment, bitmap);
+
+                    // Verify it's registered
+                    assertTrue(registry.isDirty("field1", segment, threadId));
+                    assertFalse(registry.isDirty("field1", segment, threadId + 50));
+                } catch (Exception e) {
+                    errors.incrementAndGet();
+                }
+                done.countDown();
+            }).start();
+        }
+
+        start.countDown();
+        assertTrue(done.await(10, TimeUnit.SECONDS));
+        assertEquals(0, errors.get());
+        assertEquals(numThreads, registry.getSegmentCount("field1"));
     }
 }

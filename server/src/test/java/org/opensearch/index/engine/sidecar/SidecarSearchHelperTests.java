@@ -80,4 +80,78 @@ public class SidecarSearchHelperTests extends OpenSearchTestCase {
         SidecarSearchHelper helper = new SidecarSearchHelper(registry);
         assertFalse(helper.hasActiveSidecars("other_field"));
     }
+
+    public void testGetGlobalExclusionFilterNoSidecars() {
+        SidecarRegistry registry = new SidecarRegistry();
+        SidecarSearchHelper helper = new SidecarSearchHelper(registry);
+        assertNull(helper.getGlobalExclusionFilter("embedding", 1000));
+    }
+
+    public void testGetGlobalExclusionFilterSingleSegment() {
+        SidecarRegistry registry = new SidecarRegistry();
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(500);
+        bitmap.set(3);
+        bitmap.set(7);
+        bitmap.set(99);
+        registry.register("embedding", "_0", bitmap);
+
+        SidecarSearchHelper helper = new SidecarSearchHelper(registry);
+        Query filter = helper.getGlobalExclusionFilter("embedding", 1000);
+        assertNotNull(filter);
+        assertTrue(filter instanceof SidecarKnnFilter);
+    }
+
+    public void testGetGlobalExclusionFilterMultipleSegments() {
+        SidecarRegistry registry = new SidecarRegistry();
+
+        SidecarVersionBitmap bitmap0 = new SidecarVersionBitmap(500);
+        bitmap0.set(5);
+        bitmap0.set(10);
+        registry.register("embedding", "_0", bitmap0);
+
+        SidecarVersionBitmap bitmap1 = new SidecarVersionBitmap(800);
+        bitmap1.set(500);
+        bitmap1.set(750);
+        registry.register("embedding", "_1", bitmap1);
+
+        SidecarSearchHelper helper = new SidecarSearchHelper(registry);
+        Query filter = helper.getGlobalExclusionFilter("embedding", 1000);
+        assertNotNull(filter);
+        assertTrue(filter instanceof SidecarKnnFilter);
+    }
+
+    public void testGetGlobalExclusionFilterEmptyBitmaps() {
+        SidecarRegistry registry = new SidecarRegistry();
+        // Register bitmaps with no bits set
+        registry.register("embedding", "_0", new SidecarVersionBitmap(500));
+        registry.register("embedding", "_1", new SidecarVersionBitmap(800));
+
+        SidecarSearchHelper helper = new SidecarSearchHelper(registry);
+        assertNull(helper.getGlobalExclusionFilter("embedding", 1000));
+    }
+
+    public void testGetGlobalExclusionFilterUnregisteredField() {
+        SidecarRegistry registry = new SidecarRegistry();
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(500);
+        bitmap.set(5);
+        registry.register("embedding", "_0", bitmap);
+
+        SidecarSearchHelper helper = new SidecarSearchHelper(registry);
+        assertNull(helper.getGlobalExclusionFilter("other_field", 1000));
+    }
+
+    public void testGetGlobalExclusionFilterRespectsMaxDoc() {
+        SidecarRegistry registry = new SidecarRegistry();
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(500);
+        bitmap.set(5);
+        bitmap.set(499); // This is within maxDoc of 500 but we pass globalMaxDoc=200
+        registry.register("embedding", "_0", bitmap);
+
+        SidecarSearchHelper helper = new SidecarSearchHelper(registry);
+        // globalMaxDoc=200, so doc 499 should not be included in the global bitmap
+        // but doc 5 should still cause a non-null filter
+        Query filter = helper.getGlobalExclusionFilter("embedding", 200);
+        assertNotNull(filter);
+        assertTrue(filter instanceof SidecarKnnFilter);
+    }
 }

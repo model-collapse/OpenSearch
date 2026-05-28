@@ -79,6 +79,8 @@ import org.opensearch.search.startree.StarTreeQueryContext;
 import org.opensearch.transport.RemoteClusterAware;
 import org.opensearch.transport.client.Client;
 
+import org.opensearch.common.Nullable;
+
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -86,6 +88,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
@@ -130,6 +133,8 @@ public class QueryShardContext extends BaseQueryRewriteContext {
     private boolean isInnerHitQuery;
 
     private StarTreeQueryContext starTreeQueryContext;
+
+    private BiFunction<String, Integer, Query> sidecarFilterProvider;
 
     public QueryShardContext(
         int shardId,
@@ -287,6 +292,7 @@ public class QueryShardContext extends BaseQueryRewriteContext {
             source.validate(),
             source.keywordIndexOrDocValuesEnabled
         );
+        this.sidecarFilterProvider = source.sidecarFilterProvider;
     }
 
     private QueryShardContext(
@@ -388,6 +394,34 @@ public class QueryShardContext extends BaseQueryRewriteContext {
 
     public void setStarTreeQueryContext(StarTreeQueryContext starTreeQueryContext) {
         this.starTreeQueryContext = starTreeQueryContext;
+    }
+
+    /**
+     * Sets a provider that produces a sidecar exclusion filter for a given field.
+     * The provider accepts (fieldName, maxDoc) and returns a Query that excludes
+     * documents with stale vectors in the base segment, or null if no exclusion is needed.
+     *
+     * @param provider a BiFunction taking (fieldName, maxDoc) and returning a filter Query or null
+     */
+    public void setSidecarFilterProvider(BiFunction<String, Integer, Query> provider) {
+        this.sidecarFilterProvider = provider;
+    }
+
+    /**
+     * Returns a filter query that excludes documents with sidecar-updated vectors for the given field.
+     * Used by the k-NN plugin to prevent stale vectors in the base HNSW graph from being returned
+     * when updated versions exist in a sidecar.
+     *
+     * @param fieldName the vector field name
+     * @param maxDoc    the total maximum document count across all segments
+     * @return a filter Query that excludes dirty docs, or null if no sidecar updates exist
+     */
+    @Nullable
+    public Query getSidecarExclusionFilter(String fieldName, int maxDoc) {
+        if (sidecarFilterProvider == null) {
+            return null;
+        }
+        return sidecarFilterProvider.apply(fieldName, maxDoc);
     }
 
     public void addNamedQuery(String name, Query query) {

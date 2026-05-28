@@ -63,6 +63,7 @@ import org.opensearch.index.cache.bitset.BitsetFilterCache;
 import org.opensearch.index.compositeindex.CompositeIndexSettings;
 import org.opensearch.index.compositeindex.datacube.startree.StarTreeIndexSettings;
 import org.opensearch.index.engine.Engine;
+import org.opensearch.index.engine.sidecar.SidecarSearchHelper;
 import org.opensearch.index.mapper.MappedFieldType;
 import org.opensearch.index.mapper.MapperService;
 import org.opensearch.index.mapper.ObjectMapper;
@@ -292,6 +293,10 @@ final class DefaultSearchContext extends SearchContext {
             validate,
             evaluateKeywordIndexOrDocValuesEnabled()
         );
+        SidecarSearchHelper sidecarHelper = indexShard.sidecarSearchHelper();
+        if (sidecarHelper != null) {
+            queryShardContext.setSidecarFilterProvider(sidecarHelper::getGlobalExclusionFilter);
+        }
         queryBoost = request.indexBoost();
         this.lowLevelCancellation = lowLevelCancellation;
         this.requestToAggReduceContextBuilder = requestToAggReduceContextBuilder;

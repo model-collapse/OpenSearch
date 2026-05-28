@@ -8,8 +8,12 @@
 
 package org.opensearch.index.reindex;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.apache.logging.log4j.Logger;
 import org.opensearch.action.index.IndexRequest;
+import org.opensearch.common.xcontent.XContentHelper;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.script.ScriptService;
 import org.opensearch.threadpool.ThreadPool;
@@ -19,9 +23,9 @@ import org.opensearch.transport.client.ParentTaskAssigningClient;
  * Implementation of update-fields-by-query using scrolling and bulk.
  * Scrolls over documents matching a query and builds IndexRequests for sidecar field updates.
  *
- * Phase 3 skeleton: buildRequest() creates a standard IndexRequest from the scroll hit.
- * Full pipeline integration (reading source_fields, running pipeline, writing sidecar updates)
- * will be added in a follow-up.
+ * buildRequest() sets the ingest pipeline on the IndexRequest and filters the document source
+ * to only include configured source_fields. The ingest pipeline produces the new field value
+ * during indexing.
  *
  * @opensearch.internal
  */
@@ -42,20 +46,36 @@ public class AsyncUpdateFieldsByQueryAction
 
     @Override
     protected RequestWrapper<IndexRequest> buildRequest(ScrollableHitSource.Hit doc) {
-        // Phase 3 skeleton: build an IndexRequest that will be sent as a sidecar update.
-        // In the full implementation, this would:
-        // 1. Read source_fields from doc.getSource()
-        // 2. Run the pipeline to compute new field values
-        // 3. Create a sidecar update request
+        UpdateFieldsByQueryRequest request = mainRequest;
+
         IndexRequest index = new IndexRequest();
         index.index(doc.getIndex());
         index.id(doc.getId());
-        index.source(doc.getSource(), doc.getMediaType());
         index.setIfSeqNo(doc.getSeqNo());
         index.setIfPrimaryTerm(doc.getPrimaryTerm());
         if (doc.getRouting() != null) {
             index.routing(doc.getRouting());
         }
+
+        // If pipeline is specified, set it so ingest processes the doc
+        if (request.getPipeline() != null) {
+            index.setPipeline(request.getPipeline());
+        }
+
+        // If sourceFields specified, only include those fields in the source
+        if (request.getSourceFields() != null && !request.getSourceFields().isEmpty()) {
+            Map<String, Object> fullSource = XContentHelper.convertToMap(doc.getSource(), true, doc.getMediaType()).v2();
+            Map<String, Object> filteredSource = new HashMap<>();
+            for (String field : request.getSourceFields()) {
+                if (fullSource.containsKey(field)) {
+                    filteredSource.put(field, fullSource.get(field));
+                }
+            }
+            index.source(filteredSource, doc.getMediaType());
+        } else {
+            index.source(doc.getSource(), doc.getMediaType());
+        }
+
         return wrap(index);
     }
 }

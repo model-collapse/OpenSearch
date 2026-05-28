@@ -234,6 +234,14 @@ public class TransportUpdateAction extends TransportInstanceSingleOperationActio
         final IndexService indexService = indicesService.indexServiceSafe(shardId.getIndex());
         final IndexShard indexShard = indexService.getShard(shardId.getId());
         final UpdateHelper.Result result = updateHelper.prepare(request, indexShard, threadPool::absoluteTimeInMillis);
+        if (result.isSidecarEligible()) {
+            logger.debug(
+                "Sidecar-eligible update detected for doc [{}] in index [{}], using standard path for now",
+                request.id(),
+                request.index()
+            );
+            // TODO: Route to UpdateFieldsAction for sidecar fast path
+        }
         switch (result.getResponseResult()) {
             case CREATED:
                 IndexRequest upsertRequest = result.action();

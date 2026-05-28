@@ -332,4 +332,101 @@ public class SidecarRegistryTests extends OpenSearchTestCase {
         assertTrue(allFiles.contains("file2.vec"));
         assertEquals(2, allFiles.size());
     }
+
+    public void testReaderCacheReusesReader() throws Exception {
+        SidecarRegistry registry = new SidecarRegistry();
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(100);
+        bitmap.set(7);
+
+        // Create a real sidecar Lucene index
+        Path sidecarDir = Files.createTempDirectory("sidecar_test_cache");
+        float[] expectedVector = new float[] { 4.0f, 5.0f, 6.0f };
+        try (Directory dir = FSDirectory.open(sidecarDir)) {
+            IndexWriterConfig config = new IndexWriterConfig();
+            try (IndexWriter writer = new IndexWriter(dir, config)) {
+                Document doc = new Document();
+                doc.add(new StoredField("original_doc_id", 7));
+                doc.add(new KnnFloatVectorField("embedding", expectedVector, VectorSimilarityFunction.COSINE));
+                writer.addDocument(doc);
+                writer.commit();
+            }
+        }
+
+        registry.register("embedding", "_0", bitmap, sidecarDir);
+
+        // First read - opens and caches the reader
+        Map<String, Object> values1 = registry.getSidecarValues("embedding", "_0", 7);
+        assertFalse(values1.isEmpty());
+
+        // Second read - should reuse the cached reader without error
+        Map<String, Object> values2 = registry.getSidecarValues("embedding", "_0", 7);
+        assertFalse(values2.isEmpty());
+
+        @SuppressWarnings("unchecked")
+        List<Double> vectorResult = (List<Double>) values2.get("embedding");
+        assertEquals(3, vectorResult.size());
+        assertEquals(4.0, vectorResult.get(0), 0.001);
+        assertEquals(5.0, vectorResult.get(1), 0.001);
+        assertEquals(6.0, vectorResult.get(2), 0.001);
+
+        // Cleanup
+        registry.closeAllReaders();
+    }
+
+    public void testCloseAllReadersReleasesResources() throws Exception {
+        SidecarRegistry registry = new SidecarRegistry();
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(100);
+        bitmap.set(1);
+
+        Path sidecarDir = Files.createTempDirectory("sidecar_test_closeall");
+        try (Directory dir = FSDirectory.open(sidecarDir)) {
+            IndexWriterConfig config = new IndexWriterConfig();
+            try (IndexWriter writer = new IndexWriter(dir, config)) {
+                Document doc = new Document();
+                doc.add(new StoredField("original_doc_id", 1));
+                doc.add(new SortedNumericDocValuesField("count", 99L));
+                writer.addDocument(doc);
+                writer.commit();
+            }
+        }
+
+        registry.register("count", "_0", bitmap, sidecarDir);
+
+        // Read to populate cache
+        Map<String, Object> values = registry.getSidecarValues("count", "_0", 1);
+        assertEquals(99L, values.get("count"));
+
+        // Close all readers - should not throw
+        registry.closeAllReaders();
+    }
+
+    public void testUnregisterClosesCachedReader() throws Exception {
+        SidecarRegistry registry = new SidecarRegistry();
+        SidecarVersionBitmap bitmap = new SidecarVersionBitmap(100);
+        bitmap.set(2);
+
+        Path sidecarDir = Files.createTempDirectory("sidecar_test_unregister_cache");
+        try (Directory dir = FSDirectory.open(sidecarDir)) {
+            IndexWriterConfig config = new IndexWriterConfig();
+            try (IndexWriter writer = new IndexWriter(dir, config)) {
+                Document doc = new Document();
+                doc.add(new StoredField("original_doc_id", 2));
+                doc.add(new SortedNumericDocValuesField("price", 500L));
+                writer.addDocument(doc);
+                writer.commit();
+            }
+        }
+
+        registry.register("price", "_0", bitmap, sidecarDir);
+
+        // Read to populate cache
+        Map<String, Object> values = registry.getSidecarValues("price", "_0", 2);
+        assertEquals(500L, values.get("price"));
+
+        // Unregister should close the cached reader
+        registry.unregister("price", "_0");
+
+        // After unregister, the path should be gone
+        assertNull(registry.getSidecarPath("price", "_0"));
+    }
 }

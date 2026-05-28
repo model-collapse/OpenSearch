@@ -24,6 +24,7 @@ import org.apache.lucene.store.FSDirectory;
 import org.opensearch.common.annotation.ExperimentalApi;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -54,6 +55,9 @@ public class SidecarRegistry {
     // Map: segmentKey (field:segment) -> Set<filename> -- files produced by sidecar flushes
     private final ConcurrentHashMap<String, Set<String>> sidecarFiles = new ConcurrentHashMap<>();
 
+    // Cache: sidecar directory path -> opened DirectoryReader (avoids re-opening on every read)
+    private final ConcurrentHashMap<Path, DirectoryReader> readerCache = new ConcurrentHashMap<>();
+
     /**
      * Registers a sidecar bitmap for a given field and segment, along with the sidecar directory path.
      */
@@ -73,6 +77,7 @@ public class SidecarRegistry {
 
     /**
      * Unregisters a sidecar bitmap for a given field and segment.
+     * Also closes and removes any cached reader for the corresponding sidecar path.
      */
     public void unregister(String fieldName, String segmentName) {
         ConcurrentHashMap<String, SidecarVersionBitmap> segments = activeBitmaps.get(fieldName);
@@ -82,6 +87,7 @@ public class SidecarRegistry {
                 activeBitmaps.remove(fieldName, segments);
             }
         }
+        clearCache(fieldName, segmentName);
     }
 
     /**
@@ -133,20 +139,76 @@ public class SidecarRegistry {
     }
 
     private Map<String, Object> readSidecarValue(Path sidecarPath, String fieldName, int docId) throws IOException {
-        try (Directory dir = FSDirectory.open(sidecarPath); DirectoryReader reader = DirectoryReader.open(dir)) {
-            for (LeafReaderContext ctx : reader.leaves()) {
-                LeafReader leaf = ctx.reader();
-                StoredFields storedFields = leaf.storedFields();
-                for (int i = 0; i < leaf.maxDoc(); i++) {
-                    Document doc = storedFields.document(i);
-                    IndexableField docIdField = doc.getField("original_doc_id");
-                    if (docIdField != null && docIdField.numericValue().intValue() == docId) {
-                        return extractFieldValue(leaf, i, fieldName);
-                    }
+        DirectoryReader reader = getCachedReader(sidecarPath);
+        for (LeafReaderContext ctx : reader.leaves()) {
+            LeafReader leaf = ctx.reader();
+            StoredFields storedFields = leaf.storedFields();
+            for (int i = 0; i < leaf.maxDoc(); i++) {
+                Document doc = storedFields.document(i);
+                IndexableField docIdField = doc.getField("original_doc_id");
+                if (docIdField != null && docIdField.numericValue().intValue() == docId) {
+                    return extractFieldValue(leaf, i, fieldName);
                 }
             }
         }
         return Collections.emptyMap();
+    }
+
+    /**
+     * Returns a cached DirectoryReader for the given sidecar path.
+     * If no reader is cached, opens a new one and stores it in the cache.
+     */
+    private DirectoryReader getCachedReader(Path sidecarPath) throws IOException {
+        try {
+            return readerCache.computeIfAbsent(sidecarPath, path -> {
+                try {
+                    Directory dir = FSDirectory.open(path);
+                    return DirectoryReader.open(dir);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        }
+    }
+
+    /**
+     * Closes and removes the cached reader for a specific field and segment.
+     * Called during unregister to release resources for that sidecar path.
+     */
+    public void clearCache(String fieldName, String segmentName) {
+        ConcurrentHashMap<String, Path> segments = sidecarPaths.get(fieldName);
+        if (segments != null) {
+            Path path = segments.remove(segmentName);
+            if (path != null) {
+                DirectoryReader reader = readerCache.remove(path);
+                if (reader != null) {
+                    try {
+                        reader.close();
+                    } catch (IOException e) {
+                        logger.warn("Failed to close cached reader for path [{}]: {}", path, e.getMessage());
+                    }
+                }
+            }
+            if (segments.isEmpty()) {
+                sidecarPaths.remove(fieldName, segments);
+            }
+        }
+    }
+
+    /**
+     * Closes all cached DirectoryReaders. Should be called during IndexShard close or merge cleanup.
+     */
+    public void closeAllReaders() {
+        readerCache.forEach((path, reader) -> {
+            try {
+                reader.close();
+            } catch (IOException e) {
+                logger.warn("Failed to close cached reader for path [{}]: {}", path, e.getMessage());
+            }
+        });
+        readerCache.clear();
     }
 
     private Map<String, Object> extractFieldValue(LeafReader leaf, int sidecarDocId, String fieldName) throws IOException {
@@ -219,6 +281,14 @@ public class SidecarRegistry {
     public int getSegmentCount(String fieldName) {
         ConcurrentHashMap<String, SidecarVersionBitmap> segments = activeBitmaps.get(fieldName);
         return segments != null ? segments.size() : 0;
+    }
+
+    /**
+     * Returns the sidecar bitmap for a given field and segment, or null if none exists.
+     */
+    public SidecarVersionBitmap getBitmap(String fieldName, String segmentName) {
+        ConcurrentHashMap<String, SidecarVersionBitmap> segments = activeBitmaps.get(fieldName);
+        return segments != null ? segments.get(segmentName) : null;
     }
 
     /**

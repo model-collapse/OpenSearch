@@ -38,6 +38,10 @@ import org.opensearch.transport.TransportService;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -112,83 +116,77 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
             // Determine if this is a scalar or vector update
             boolean isScalar = !request.updates().isEmpty() && request.updates().get(0).isScalarUpdate();
 
-            // Store sidecar files within the Lucene index directory so they are co-located
-            // with segments. Full snapshot/replication integration is Phase 2.
-            Path sidecarDir = primary.shardPath().resolveIndex().resolve(
-                "_sidecar_" + request.field() + "_" + System.nanoTime()
-            );
-            Files.createDirectories(sidecarDir);
-
             // Acquire a searcher to resolve document _ids to Lucene doc ordinals
             try (Engine.Searcher searcher = primary.acquireSearcher("update_fields")) {
                 DirectoryReader reader = searcher.getDirectoryReader();
 
-                if (isScalar) {
-                    // Determine DocValuesType from field mapping
-                    DocValuesSidecarWriter.DocValuesType dvType = resolveDocValuesType(primary, request.field());
-
-                    try (DocValuesSidecarWriter writer = new DocValuesSidecarWriter(sidecarDir, request.field(), dvType, 1)) {
-                        for (UpdateFieldsRequest.FieldUpdate update : request.updates()) {
-                            try {
-                                DocIdResolver.ResolvedDoc resolved = DocIdResolver.resolve(reader, update.getId());
-                                if (resolved == null) {
-                                    failed++;
-                                    continue; // doc not found
-                                }
-                                int docId = resolved.docId();
-                                writer.write(docId, update.getScalarValue());
-                                updated++;
-                            } catch (Exception e) {
-                                logger.warn("Failed to write scalar for doc [{}]: {}", update.getId(), e.getMessage());
-                                failed++;
-                            }
+                // Group updates by segment name using per-doc resolution
+                Map<String, List<ResolvedUpdate>> bySegment = new HashMap<>();
+                for (UpdateFieldsRequest.FieldUpdate update : request.updates()) {
+                    try {
+                        DocIdResolver.ResolvedDoc resolved = DocIdResolver.resolve(reader, update.getId());
+                        if (resolved == null) {
+                            failed++;
+                            continue; // doc not found
                         }
+                        bySegment.computeIfAbsent(resolved.segmentName(), k -> new ArrayList<>())
+                            .add(new ResolvedUpdate(update, resolved.docId()));
+                    } catch (Exception e) {
+                        logger.warn("Failed to resolve doc [{}]: {}", update.getId(), e.getMessage());
+                        failed++;
+                    }
+                }
 
-                        if (updated > 0) {
+                // Process each segment group with its own writer and bitmap
+                SidecarRegistry registry = primary.sidecarRegistry();
+                for (Map.Entry<String, List<ResolvedUpdate>> entry : bySegment.entrySet()) {
+                    String segmentName = entry.getKey();
+                    List<ResolvedUpdate> segmentUpdates = entry.getValue();
+
+                    // Store sidecar files within the Lucene index directory so they are co-located
+                    // with segments. Full snapshot/replication integration is Phase 2.
+                    Path sidecarDir = primary.shardPath().resolveIndex().resolve(
+                        "_sidecar_" + request.field() + "_" + segmentName + "_" + System.nanoTime()
+                    );
+                    Files.createDirectories(sidecarDir);
+
+                    if (isScalar) {
+                        DocValuesSidecarWriter.DocValuesType dvType = resolveDocValuesType(primary, request.field());
+                        try (DocValuesSidecarWriter writer = new DocValuesSidecarWriter(sidecarDir, request.field(), dvType, 1)) {
+                            for (ResolvedUpdate ru : segmentUpdates) {
+                                try {
+                                    writer.write(ru.docId(), ru.update().getScalarValue());
+                                    updated++;
+                                } catch (Exception e) {
+                                    logger.warn("Failed to write scalar for doc [{}]: {}", ru.update().getId(), e.getMessage());
+                                    failed++;
+                                }
+                            }
+
                             SidecarWriter.SidecarWriteResult result = writer.flush();
-                            // Register bitmap in SidecarRegistry so reads see dirty docs
                             if (result != null) {
-                                SidecarRegistry registry = primary.sidecarRegistry();
-                                String segmentName = resolveSegmentName(reader);
                                 registry.register(request.field(), segmentName, writer.getVersionBitmap(), sidecarDir);
-                                // Register files for snapshot/replication with relative paths
-                                // so segment replication can locate them in subdirectories
                                 String fileKey = request.field() + ":" + segmentName;
                                 String sidecarDirName = sidecarDir.getFileName().toString();
                                 registry.registerFiles(fileKey, result.files(), sidecarDirName);
                             }
                         }
-                    }
-                } else {
-                    // Vector update path
-                    int dimension = request.updates().isEmpty() ? 0 : request.updates().get(0).getValue().length;
-
-                    try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(sidecarDir, dimension, 1)) {
-                        for (UpdateFieldsRequest.FieldUpdate update : request.updates()) {
-                            try {
-                                DocIdResolver.ResolvedDoc resolved = DocIdResolver.resolve(reader, update.getId());
-                                if (resolved == null) {
+                    } else {
+                        int dimension = segmentUpdates.get(0).update().getValue().length;
+                        try (KnnVectorSidecarWriter writer = new KnnVectorSidecarWriter(sidecarDir, dimension, 1)) {
+                            for (ResolvedUpdate ru : segmentUpdates) {
+                                try {
+                                    writer.addVector(ru.docId(), ru.update().getValue());
+                                    updated++;
+                                } catch (Exception e) {
+                                    logger.warn("Failed to write vector for doc [{}]: {}", ru.update().getId(), e.getMessage());
                                     failed++;
-                                    continue; // doc not found
                                 }
-                                int docId = resolved.docId();
-                                writer.addVector(docId, update.getValue());
-                                updated++;
-                            } catch (Exception e) {
-                                logger.warn("Failed to write vector for doc [{}]: {}", update.getId(), e.getMessage());
-                                failed++;
                             }
-                        }
 
-                        if (updated > 0) {
                             SidecarWriter.SidecarWriteResult result = writer.flush();
-                            // Register bitmap in SidecarRegistry so reads see dirty docs
                             if (result != null) {
-                                SidecarRegistry registry = primary.sidecarRegistry();
-                                String segmentName = resolveSegmentName(reader);
                                 registry.register(request.field(), segmentName, writer.getVersionBitmap(), sidecarDir);
-                                // Register files for snapshot/replication with relative paths
-                                // so segment replication can locate them in subdirectories
                                 String fileKey = request.field() + ":" + segmentName;
                                 String sidecarDirName = sidecarDir.getFileName().toString();
                                 registry.registerFiles(fileKey, result.files(), sidecarDirName);
@@ -210,20 +208,9 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
     }
 
     /**
-     * Resolve a stable segment name from the reader. Uses the first leaf's segment name
-     * as the registration key. For multi-segment cases, the bitmap covers all segments
-     * (Phase 1 simplification).
+     * Holds a resolved update: the original update paired with its segment-local doc ID.
      */
-    private String resolveSegmentName(DirectoryReader reader) {
-        if (reader.leaves().isEmpty()) {
-            return "unknown";
-        }
-        var leaf = reader.leaves().get(0).reader();
-        if (leaf instanceof org.apache.lucene.index.SegmentReader sr) {
-            return sr.getSegmentName();
-        }
-        return "leaf_" + reader.leaves().get(0).ord;
-    }
+    private record ResolvedUpdate(UpdateFieldsRequest.FieldUpdate update, int docId) {}
 
     /**
      * Resolve the DocValuesType from the field's mapping type.

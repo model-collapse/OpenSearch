@@ -11,6 +11,8 @@ package org.opensearch.index.engine.sidecar;
 import org.apache.lucene.search.Query;
 import org.opensearch.common.annotation.ExperimentalApi;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -53,13 +55,14 @@ public class SidecarSearchHelper {
     }
 
     /**
-     * Returns a global exclusion filter that unions per-segment bitmaps for a field into a single
-     * filter covering all segments. This is suitable for use as a KnnFloatVectorQuery filter
-     * parameter, where Lucene handles per-leaf dispatch internally.
+     * Returns a segment-aware exclusion filter that resolves the correct bitmap per leaf context.
+     * This is suitable for use as a KnnFloatVectorQuery filter parameter, where Lucene handles
+     * per-leaf dispatch internally. Each leaf gets its own segment-local bitmap, eliminating
+     * the need for docBase offset calculations.
      *
      * @param fieldName the vector field name
      * @param maxDoc    the total maximum document count across all segments (i.e., IndexReader.maxDoc())
-     * @return a {@link SidecarKnnFilter} that excludes all dirty docs across segments, or null if none are dirty
+     * @return a {@link SidecarKnnFilter} that excludes dirty docs per-segment, or null if none are dirty
      */
     public Query getGlobalExclusionFilter(String fieldName, int maxDoc) {
         if (!registry.hasAnySidecars()) {
@@ -71,27 +74,19 @@ public class SidecarSearchHelper {
             return null;
         }
 
-        SidecarVersionBitmap globalBitmap = new SidecarVersionBitmap(maxDoc);
-        boolean anySet = false;
+        Map<String, SidecarVersionBitmap> segmentBitmaps = new HashMap<>();
         for (String segment : segments) {
-            SidecarVersionBitmap segBitmap = registry.getBitmap(fieldName, segment);
-            if (segBitmap != null && segBitmap.cardinality() > 0) {
-                for (int doc = segBitmap.nextSetBit(0); doc != -1 && doc < segBitmap.maxDoc(); doc = doc + 1 < segBitmap.maxDoc()
-                    ? segBitmap.nextSetBit(doc + 1)
-                    : -1) {
-                    if (doc < maxDoc) {
-                        globalBitmap.set(doc);
-                        anySet = true;
-                    }
-                }
+            SidecarVersionBitmap bitmap = registry.getBitmap(fieldName, segment);
+            if (bitmap != null && bitmap.cardinality() > 0) {
+                segmentBitmaps.put(segment, bitmap);
             }
         }
 
-        if (!anySet) {
+        if (segmentBitmaps.isEmpty()) {
             return null;
         }
 
-        return new SidecarKnnFilter(globalBitmap, maxDoc);
+        return new SidecarKnnFilter(segmentBitmaps, maxDoc);
     }
 
     /**

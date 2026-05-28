@@ -149,6 +149,7 @@ import org.opensearch.index.engine.SegmentsStats;
 import org.opensearch.index.engine.dataformat.DataFormatRegistry;
 import org.opensearch.index.engine.sidecar.SidecarAwareDirectoryReader;
 import org.opensearch.index.engine.sidecar.SidecarRegistry;
+import org.opensearch.index.engine.sidecar.SidecarSearchHelper;
 import org.opensearch.index.engine.exec.IndexReaderProvider;
 import org.opensearch.index.engine.exec.Indexer;
 import org.opensearch.index.engine.exec.IndexerFactory;
@@ -424,6 +425,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
     private final SidecarRegistry sidecarRegistry;
 
+    private final SidecarSearchHelper sidecarSearchHelper;
+
     private final Map<String, FormatChecksumStrategy> checksumStrategies;
 
     @InternalApi
@@ -553,6 +556,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         }
         indexShardOperationPermits = new IndexShardOperationPermits(shardId, threadPool);
         this.sidecarRegistry = new SidecarRegistry();
+        this.sidecarSearchHelper = new SidecarSearchHelper(sidecarRegistry);
         CheckedFunction<DirectoryReader, DirectoryReader, IOException> baseReaderWrapper;
         if (indexSettings.isDerivedSourceEnabled()) {
             baseReaderWrapper = reader -> {
@@ -753,6 +757,13 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      */
     public SidecarRegistry sidecarRegistry() {
         return sidecarRegistry;
+    }
+
+    /**
+     * Returns the sidecar search helper for KNN query filter integration.
+     */
+    public SidecarSearchHelper sidecarSearchHelper() {
+        return sidecarSearchHelper;
     }
 
     /**

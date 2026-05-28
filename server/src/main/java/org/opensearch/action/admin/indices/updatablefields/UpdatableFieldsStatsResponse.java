@@ -26,9 +26,13 @@ import java.util.Map;
 public class UpdatableFieldsStatsResponse extends ActionResponse implements ToXContentObject {
 
     private final Map<String, FieldStats> fieldStats;
+    private final int totalShards;
+    private final int localShardsQueried;
 
-    public UpdatableFieldsStatsResponse(Map<String, FieldStats> fieldStats) {
+    public UpdatableFieldsStatsResponse(Map<String, FieldStats> fieldStats, int totalShards, int localShardsQueried) {
         this.fieldStats = fieldStats;
+        this.totalShards = totalShards;
+        this.localShardsQueried = localShardsQueried;
     }
 
     public UpdatableFieldsStatsResponse(StreamInput in) throws IOException {
@@ -40,6 +44,8 @@ public class UpdatableFieldsStatsResponse extends ActionResponse implements ToXC
             map.put(field, new FieldStats(in.readVInt(), in.readVLong(), in.readVInt()));
         }
         this.fieldStats = map;
+        this.totalShards = in.readVInt();
+        this.localShardsQueried = in.readVInt();
     }
 
     @Override
@@ -51,11 +57,16 @@ public class UpdatableFieldsStatsResponse extends ActionResponse implements ToXC
             out.writeVLong(entry.getValue().docsUpdated);
             out.writeVInt(entry.getValue().segmentsWithSidecars);
         }
+        out.writeVInt(totalShards);
+        out.writeVInt(localShardsQueried);
     }
 
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
         builder.startObject();
+        builder.field("total_shards", totalShards);
+        builder.field("shards_queried", localShardsQueried);
+        builder.field("_local_only", localShardsQueried < totalShards);
         builder.startObject("fields");
         for (Map.Entry<String, FieldStats> entry : fieldStats.entrySet()) {
             builder.startObject(entry.getKey());
@@ -71,6 +82,14 @@ public class UpdatableFieldsStatsResponse extends ActionResponse implements ToXC
 
     public Map<String, FieldStats> fieldStats() {
         return fieldStats;
+    }
+
+    public int totalShards() {
+        return totalShards;
+    }
+
+    public int localShardsQueried() {
+        return localShardsQueried;
     }
 
     /**

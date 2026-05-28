@@ -15,6 +15,7 @@ import org.opensearch.action.support.ActionFilters;
 import org.opensearch.action.support.replication.TransportWriteAction;
 import org.opensearch.cluster.action.shard.ShardStateAction;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.OpenSearchException;
 import org.opensearch.common.inject.Inject;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.core.action.ActionListener;
@@ -92,6 +93,19 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
         ActionListener<PrimaryResult<ShardUpdateFieldsRequest, ShardUpdateFieldsResponse>> listener
     ) {
         ActionListener.completeWith(listener, () -> {
+            // Sidecar writes rely on segment replication (or remote store) for cross-node
+            // durability — sidecar files are copied directly to replicas. Without segment
+            // replication, there is no translog entry to replay on crash recovery, creating
+            // a durability gap. Reject early with a clear message.
+            if (primary.indexSettings().isSegRepEnabledOrRemoteNode() == false) {
+                throw new OpenSearchException(
+                    "index ["
+                        + primary.shardId().getIndexName()
+                        + "] does not use segment replication; "
+                        + "_update_fields requires index.replication.type=SEGMENT for durability"
+                );
+            }
+
             int updated = 0;
             int failed = 0;
 

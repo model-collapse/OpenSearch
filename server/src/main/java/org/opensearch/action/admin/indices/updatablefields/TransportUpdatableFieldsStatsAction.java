@@ -11,6 +11,9 @@ package org.opensearch.action.admin.indices.updatablefields;
 import org.opensearch.action.support.ActionFilters;
 import org.opensearch.action.support.HandledTransportAction;
 import org.opensearch.cluster.metadata.IndexMetadata;
+import org.opensearch.cluster.routing.IndexRoutingTable;
+import org.opensearch.cluster.routing.IndexShardRoutingTable;
+import org.opensearch.cluster.routing.ShardRouting;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.inject.Inject;
 import org.opensearch.core.action.ActionListener;
@@ -57,17 +60,33 @@ public class TransportUpdatableFieldsStatsAction extends HandledTransportAction<
                 return;
             }
 
+            // Determine total active shard copies from the routing table
+            int totalShards = 0;
+            IndexRoutingTable routingTable = clusterService.state().routingTable().index(indexName);
+            if (routingTable != null) {
+                for (Map.Entry<Integer, IndexShardRoutingTable> entry : routingTable.shards().entrySet()) {
+                    IndexShardRoutingTable shardTable = entry.getValue();
+                    for (ShardRouting routing : shardTable.shards()) {
+                        if (routing.active()) {
+                            totalShards++;
+                        }
+                    }
+                }
+            }
+
             IndexService indexService = indicesService.indexService(indexMetadata.getIndex());
             if (indexService == null) {
-                listener.onResponse(new UpdatableFieldsStatsResponse(Map.of()));
+                listener.onResponse(new UpdatableFieldsStatsResponse(Map.of(), totalShards, 0));
                 return;
             }
 
-            // Aggregate stats across all shards
+            // Aggregate stats across local shards only
             // field -> [generations, docsUpdated, segmentsWithSidecars]
             Map<String, long[]> aggregated = new HashMap<>();
+            int localShardsQueried = 0;
 
             for (IndexShard shard : indexService) {
+                localShardsQueried++;
                 SidecarRegistry registry = shard.sidecarRegistry();
                 if (registry == null || !registry.hasAnySidecars()) {
                     continue;
@@ -89,7 +108,7 @@ public class TransportUpdatableFieldsStatsAction extends HandledTransportAction<
                 result.put(entry.getKey(), new UpdatableFieldsStatsResponse.FieldStats((int) s[0], s[1], (int) s[2]));
             }
 
-            listener.onResponse(new UpdatableFieldsStatsResponse(result));
+            listener.onResponse(new UpdatableFieldsStatsResponse(result, totalShards, localShardsQueried));
         } catch (Exception e) {
             listener.onFailure(e);
         }

@@ -70,17 +70,23 @@ import org.opensearch.core.xcontent.MediaType;
 import org.opensearch.index.IndexNotFoundException;
 import org.opensearch.index.IndexService;
 import org.opensearch.index.IndexSettings;
+import org.opensearch.index.seqno.SequenceNumbers;
 import org.opensearch.index.engine.VersionConflictEngineException;
 import org.opensearch.index.shard.IndexShard;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.tasks.Task;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.threadpool.ThreadPool.Names;
+import org.opensearch.action.DocWriteResponse;
+import org.opensearch.action.update.fields.UpdateFieldsAction;
+import org.opensearch.action.update.fields.UpdateFieldsRequest;
 import org.opensearch.transport.TransportService;
 import org.opensearch.transport.client.node.NodeClient;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static org.opensearch.ExceptionsHelper.unwrapCause;
@@ -236,11 +242,56 @@ public class TransportUpdateAction extends TransportInstanceSingleOperationActio
         final UpdateHelper.Result result = updateHelper.prepare(request, indexShard, threadPool::absoluteTimeInMillis);
         if (result.isSidecarEligible()) {
             logger.debug(
-                "Sidecar-eligible update detected for doc [{}] in index [{}], using standard path for now",
+                "Sidecar-eligible update detected for doc [{}] in index [{}], routing to UpdateFieldsAction",
                 request.id(),
                 request.index()
             );
-            // TODO: Route to UpdateFieldsAction for sidecar fast path
+            // Extract the changed fields and their values from the partial doc
+            Map<String, Object> partialDoc = request.doc().sourceAsMap();
+
+            // Phase 1: support single-field updates (take the first updatable field)
+            List<UpdateFieldsRequest.FieldUpdate> updates = new ArrayList<>();
+            String targetField = null;
+
+            for (Map.Entry<String, Object> entry : partialDoc.entrySet()) {
+                targetField = entry.getKey();
+                Object value = entry.getValue();
+                if (value instanceof List<?>) {
+                    List<?> list = (List<?>) value;
+                    // Likely a vector — convert to float[]
+                    float[] vec = new float[list.size()];
+                    for (int i = 0; i < list.size(); i++) {
+                        vec[i] = ((Number) list.get(i)).floatValue();
+                    }
+                    updates.add(new UpdateFieldsRequest.FieldUpdate(request.id(), vec));
+                } else {
+                    // Scalar value
+                    updates.add(new UpdateFieldsRequest.FieldUpdate(request.id(), value));
+                }
+                break; // Phase 1: single field only
+            }
+
+            if (targetField != null && !updates.isEmpty()) {
+                UpdateFieldsRequest sidecarRequest = new UpdateFieldsRequest(request.index(), targetField, updates);
+
+                client.execute(UpdateFieldsAction.INSTANCE, sidecarRequest, ActionListener.wrap(
+                    updateFieldsResponse -> {
+                        // Build an UpdateResponse from the sidecar result
+                        UpdateResponse updateResponse = new UpdateResponse(
+                            shardId,
+                            request.id(),
+                            SequenceNumbers.UNASSIGNED_SEQ_NO,
+                            0,
+                            1,
+                            DocWriteResponse.Result.UPDATED
+                        );
+                        listener.onResponse(updateResponse);
+                    },
+                    listener::onFailure
+                ));
+                return;
+            }
+            // Fall through to standard path if sidecar routing failed
         }
         switch (result.getResponseResult()) {
             case CREATED:

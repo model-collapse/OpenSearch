@@ -1,5 +1,7 @@
 package org.opensearch.index.engine.sidecar;
 
+import java.util.Arrays;
+
 import org.apache.lucene.util.FixedBitSet;
 import org.opensearch.common.annotation.ExperimentalApi;
 
@@ -59,5 +61,18 @@ public class SidecarVersionBitmap {
             }
         }
         return remapped;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof SidecarVersionBitmap other)) return false;
+        if (maxDoc != other.maxDoc) return false;
+        return Arrays.equals(bits.getBits(), other.bits.getBits());
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * maxDoc + Arrays.hashCode(bits.getBits());
     }
 }

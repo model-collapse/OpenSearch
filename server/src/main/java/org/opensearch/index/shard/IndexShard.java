@@ -2759,6 +2759,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                         refreshTask,
                         periodicFlushTask
                     );
+                    sidecarRegistry.closeAllReaders();
 
                     if (deleted && engine != null && isPrimaryMode()) {
                         // Translog Clean up

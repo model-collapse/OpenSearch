@@ -85,6 +85,9 @@ public class UpdateFieldsRequest extends ActionRequest {
         if (field == null || field.isEmpty()) {
             validationException = addValidationError("field is missing", validationException);
         }
+        if (field != null && (field.contains("/") || field.contains("\\") || field.contains("..") || field.contains("\0"))) {
+            validationException = addValidationError("field name must not contain path separators or '..'", validationException);
+        }
         if (updates == null || updates.isEmpty()) {
             validationException = addValidationError("updates are missing", validationException);
         }

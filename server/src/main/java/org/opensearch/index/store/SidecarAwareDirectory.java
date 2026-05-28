@@ -14,6 +14,7 @@ import org.apache.lucene.store.FilterDirectory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
+import org.opensearch.common.lucene.store.FilterIndexOutput;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -84,7 +85,18 @@ public class SidecarAwareDirectory extends FilterDirectory {
             Path parentDir = filePath.getParent();
             String fileName = filePath.getFileName().toString();
             Directory subDir = FSDirectory.open(parentDir);
-            return subDir.createOutput(fileName, context);
+            IndexOutput output = subDir.createOutput(fileName, context);
+            // Return a delegating output that closes the directory when the output is closed
+            return new FilterIndexOutput("sidecar:" + name, output) {
+                @Override
+                public void close() throws IOException {
+                    try {
+                        super.close();
+                    } finally {
+                        subDir.close();
+                    }
+                }
+            };
         }
         return super.createOutput(name, context);
     }

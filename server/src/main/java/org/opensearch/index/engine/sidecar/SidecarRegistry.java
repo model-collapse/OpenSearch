@@ -23,11 +23,13 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.opensearch.common.annotation.ExperimentalApi;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @opensearch.experimental
  */
 @ExperimentalApi
-public class SidecarRegistry {
+public class SidecarRegistry implements Closeable {
 
     private static final Logger logger = LogManager.getLogger(SidecarRegistry.class);
 
@@ -57,6 +59,9 @@ public class SidecarRegistry {
 
     // Cache: sidecar directory path -> opened DirectoryReader (avoids re-opening on every read)
     private final ConcurrentHashMap<Path, DirectoryReader> readerCache = new ConcurrentHashMap<>();
+
+    // Cache: sidecar directory path -> mapping from original docId to sidecar internal docId
+    private final ConcurrentHashMap<Path, Map<Integer, Integer>> docIdMappingCache = new ConcurrentHashMap<>();
 
     /**
      * Registers a sidecar bitmap for a given field and segment, along with the sidecar directory path.
@@ -140,18 +145,44 @@ public class SidecarRegistry {
 
     private Map<String, Object> readSidecarValue(Path sidecarPath, String fieldName, int docId) throws IOException {
         DirectoryReader reader = getCachedReader(sidecarPath);
+        Map<Integer, Integer> mapping = docIdMappingCache.computeIfAbsent(sidecarPath, p -> {
+            try {
+                return buildDocIdMapping(reader);
+            } catch (IOException e) {
+                logger.warn("Failed to build docId mapping for path [{}]: {}", p, e.getMessage());
+                return Collections.emptyMap();
+            }
+        });
+
+        Integer sidecarDocId = mapping.get(docId);
+        if (sidecarDocId == null) {
+            return Collections.emptyMap();
+        }
+
+        // Find the leaf reader that contains this sidecar doc
+        for (LeafReaderContext ctx : reader.leaves()) {
+            int localDocId = sidecarDocId - ctx.docBase;
+            if (localDocId >= 0 && localDocId < ctx.reader().maxDoc()) {
+                return extractFieldValue(ctx.reader(), localDocId, fieldName);
+            }
+        }
+        return Collections.emptyMap();
+    }
+
+    private Map<Integer, Integer> buildDocIdMapping(DirectoryReader reader) throws IOException {
+        Map<Integer, Integer> mapping = new HashMap<>();
         for (LeafReaderContext ctx : reader.leaves()) {
             LeafReader leaf = ctx.reader();
             StoredFields storedFields = leaf.storedFields();
             for (int i = 0; i < leaf.maxDoc(); i++) {
                 Document doc = storedFields.document(i);
-                IndexableField docIdField = doc.getField("original_doc_id");
-                if (docIdField != null && docIdField.numericValue().intValue() == docId) {
-                    return extractFieldValue(leaf, i, fieldName);
+                IndexableField field = doc.getField("original_doc_id");
+                if (field != null) {
+                    mapping.put(field.numericValue().intValue(), ctx.docBase + i);
                 }
             }
         }
-        return Collections.emptyMap();
+        return mapping;
     }
 
     /**
@@ -182,6 +213,7 @@ public class SidecarRegistry {
         if (segments != null) {
             Path path = segments.remove(segmentName);
             if (path != null) {
+                docIdMappingCache.remove(path);
                 DirectoryReader reader = readerCache.remove(path);
                 if (reader != null) {
                     try {
@@ -209,6 +241,12 @@ public class SidecarRegistry {
             }
         });
         readerCache.clear();
+        docIdMappingCache.clear();
+    }
+
+    @Override
+    public void close() {
+        closeAllReaders();
     }
 
     private Map<String, Object> extractFieldValue(LeafReader leaf, int sidecarDocId, String fieldName) throws IOException {

@@ -151,9 +151,11 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
                                 SidecarRegistry registry = primary.sidecarRegistry();
                                 String segmentName = resolveSegmentName(reader);
                                 registry.register(request.field(), segmentName, writer.getVersionBitmap(), sidecarDir);
-                                // Register files for snapshot/replication
+                                // Register files for snapshot/replication with relative paths
+                                // so segment replication can locate them in subdirectories
                                 String fileKey = request.field() + ":" + segmentName;
-                                registry.registerFiles(fileKey, result.files());
+                                String sidecarDirName = sidecarDir.getFileName().toString();
+                                registry.registerFiles(fileKey, result.files(), sidecarDirName);
                             }
                         }
                     }
@@ -185,9 +187,11 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
                                 SidecarRegistry registry = primary.sidecarRegistry();
                                 String segmentName = resolveSegmentName(reader);
                                 registry.register(request.field(), segmentName, writer.getVersionBitmap(), sidecarDir);
-                                // Register files for snapshot/replication
+                                // Register files for snapshot/replication with relative paths
+                                // so segment replication can locate them in subdirectories
                                 String fileKey = request.field() + ":" + segmentName;
-                                registry.registerFiles(fileKey, result.files());
+                                String sidecarDirName = sidecarDir.getFileName().toString();
+                                registry.registerFiles(fileKey, result.files(), sidecarDirName);
                             }
                         }
                     }

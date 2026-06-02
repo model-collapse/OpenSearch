@@ -9,6 +9,7 @@
 package org.opensearch.index.engine.sidecar;
 
 import org.apache.lucene.index.ImpactsEnum;
+import org.apache.lucene.index.SlowImpactsEnum;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.Terms;
@@ -147,9 +148,11 @@ public class RemappingTerms extends Terms {
 
         @Override
         public ImpactsEnum impacts(int flags) throws IOException {
-            // ImpactsEnum is used for block-max WAND; for correctness, fall back to delegate
-            // A full implementation would wrap ImpactsEnum too
-            return delegate.impacts(flags);
+            // SlowImpactsEnum disables WAND block skipping for sidecar terms.
+            // This is correct: sidecar posting lists are short (only dirty docs),
+            // so WAND gain is negligible. Avoids the doc-ID space mismatch bug
+            // that would occur if we returned the sidecar's raw ImpactsEnum.
+            return new SlowImpactsEnum(postings(null, flags));
         }
 
         @Override

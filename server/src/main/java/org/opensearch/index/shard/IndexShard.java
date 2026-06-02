@@ -149,6 +149,7 @@ import org.opensearch.index.engine.SegmentsStats;
 import org.opensearch.index.engine.dataformat.DataFormatRegistry;
 import org.opensearch.index.engine.sidecar.SidecarAwareDirectoryReader;
 import org.opensearch.index.engine.sidecar.SidecarRegistry;
+import org.opensearch.index.engine.sidecar.SidecarRegistryManifest;
 import org.opensearch.index.engine.sidecar.SidecarSearchHelper;
 import org.opensearch.index.engine.exec.IndexReaderProvider;
 import org.opensearch.index.engine.exec.Indexer;
@@ -2884,6 +2885,15 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
             // Wait for ingestion warmup if enabled (pull-based ingestion only)
             handlePullBasedIngestionWarmup(getIndexer());
+
+            // Restore sidecar registry from manifest (if any) for crash recovery
+            try {
+                if (SidecarRegistryManifest.restore(sidecarRegistry, shardPath().resolveIndex())) {
+                    logger.info("Restored sidecar registry from manifest for shard {}", shardId());
+                }
+            } catch (IOException e) {
+                logger.warn("Failed to restore sidecar registry manifest for shard {}", shardId(), e);
+            }
 
             synchronized (mutex) {
                 if (state == IndexShardState.CLOSED) {

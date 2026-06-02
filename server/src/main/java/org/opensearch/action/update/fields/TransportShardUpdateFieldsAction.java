@@ -25,6 +25,7 @@ import org.opensearch.index.engine.sidecar.DocIdResolver;
 import org.opensearch.index.engine.sidecar.DocValuesSidecarWriter;
 import org.opensearch.index.engine.sidecar.KnnVectorSidecarWriter;
 import org.opensearch.index.engine.sidecar.SidecarRegistry;
+import org.opensearch.index.engine.sidecar.SidecarRegistryManifest;
 import org.opensearch.index.engine.sidecar.SidecarWriter;
 import org.opensearch.index.mapper.IpFieldMapper;
 import org.opensearch.index.mapper.KeywordFieldMapper;
@@ -36,6 +37,7 @@ import org.opensearch.telemetry.tracing.Tracer;
 import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.TransportService;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -116,6 +118,8 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
             // Determine if this is a scalar or vector update
             boolean isScalar = !request.updates().isEmpty() && request.updates().get(0).isScalarUpdate();
 
+            SidecarRegistry registry = primary.sidecarRegistry();
+
             // Acquire a searcher to resolve document _ids to Lucene doc ordinals
             try (Engine.Searcher searcher = primary.acquireSearcher("update_fields")) {
                 DirectoryReader reader = searcher.getDirectoryReader();
@@ -138,7 +142,6 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
                 }
 
                 // Process each segment group with its own writer and bitmap
-                SidecarRegistry registry = primary.sidecarRegistry();
                 for (Map.Entry<String, List<ResolvedUpdate>> entry : bySegment.entrySet()) {
                     String segmentName = entry.getKey();
                     List<ResolvedUpdate> segmentUpdates = entry.getValue();
@@ -193,6 +196,15 @@ public class TransportShardUpdateFieldsAction extends TransportWriteAction<
                             }
                         }
                     }
+                }
+            }
+
+            // Persist registry state for crash recovery
+            if (updated > 0) {
+                try {
+                    SidecarRegistryManifest.save(registry, primary.shardPath().resolveIndex());
+                } catch (IOException e) {
+                    logger.warn("Failed to persist sidecar registry manifest", e);
                 }
             }
 

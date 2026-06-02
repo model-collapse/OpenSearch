@@ -65,11 +65,18 @@ public class SidecarRegistry implements Closeable {
 
     /**
      * Registers a sidecar bitmap for a given field and segment, along with the sidecar directory path.
+     * Also persists the bitmap to disk for crash recovery.
      */
     public void register(String fieldName, String segmentName, SidecarVersionBitmap bitmap, Path sidecarPath) {
         activeBitmaps.computeIfAbsent(fieldName, k -> new ConcurrentHashMap<>()).put(segmentName, bitmap);
         if (sidecarPath != null) {
             sidecarPaths.computeIfAbsent(fieldName, k -> new ConcurrentHashMap<>()).put(segmentName, sidecarPath);
+            // Persist bitmap for recovery
+            try {
+                SidecarRegistryManifest.persistBitmap(bitmap, sidecarPath);
+            } catch (IOException e) {
+                logger.warn("Failed to persist sidecar bitmap for field [{}] segment [{}]: {}", fieldName, segmentName, e.getMessage());
+            }
         }
     }
 
@@ -280,6 +287,39 @@ public class SidecarRegistry implements Closeable {
         }
 
         return Collections.emptyMap();
+    }
+
+    /**
+     * Returns all segment names that have any registered sidecars across all fields.
+     * Used by {@link SidecarMergeListener} to detect orphaned segments after a merge.
+     */
+    public Set<String> getAllRegisteredSegments() {
+        Set<String> segments = new HashSet<>();
+        for (ConcurrentHashMap<String, SidecarVersionBitmap> fieldMap : activeBitmaps.values()) {
+            segments.addAll(fieldMap.keySet());
+        }
+        return segments;
+    }
+
+    /**
+     * Remove all sidecar state for a segment across all fields.
+     * Called when a segment has been merged away and its sidecars are orphaned.
+     * Closes any cached readers associated with the segment.
+     */
+    public void unregisterSegment(String segmentName) {
+        for (Map.Entry<String, ConcurrentHashMap<String, SidecarVersionBitmap>> entry : activeBitmaps.entrySet()) {
+            String fieldName = entry.getKey();
+            ConcurrentHashMap<String, SidecarVersionBitmap> segments = entry.getValue();
+            if (segments.remove(segmentName) != null) {
+                clearCache(fieldName, segmentName);
+                // Clean up file tracking
+                String fileKey = fieldName + ":" + segmentName;
+                sidecarFiles.remove(fileKey);
+            }
+            if (segments.isEmpty()) {
+                activeBitmaps.remove(fieldName, segments);
+            }
+        }
     }
 
     /**

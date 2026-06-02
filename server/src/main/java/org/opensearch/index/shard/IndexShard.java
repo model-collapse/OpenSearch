@@ -589,7 +589,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                             overlay.putAll(sidecarRegistry.getSidecarValues(field, segmentName, docId));
                         }
                         return overlay.isEmpty() ? null : overlay;
-                    });
+                    }, sidecarRegistry);
                 }
                 return wrapped;
             };
@@ -608,7 +608,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                             overlay.putAll(sidecarRegistry.getSidecarValues(field, segmentName, docId));
                         }
                         return overlay.isEmpty() ? null : overlay;
-                    });
+                    }, sidecarRegistry);
                 }
                 return reader;
             };

@@ -290,6 +290,26 @@ public class SidecarRegistry implements Closeable {
     }
 
     /**
+     * Returns true if the given field/segment has an inverted index sidecar,
+     * indicated by the existence of a {@code _sidecar_to_base.map} file.
+     */
+    public boolean hasInvertedIndexSidecar(String fieldName, String segmentName) {
+        Path path = getSidecarPath(fieldName, segmentName);
+        if (path == null) return false;
+        return java.nio.file.Files.exists(path.resolve("_sidecar_to_base.map"));
+    }
+
+    /**
+     * Reads and returns the sidecar-to-base doc-ID mapping array for a given field and segment.
+     * Returns null if no mapping file exists.
+     */
+    public int[] getDocIdMapping(String fieldName, String segmentName) throws IOException {
+        Path path = getSidecarPath(fieldName, segmentName);
+        if (path == null) return null;
+        return InvertedIndexSidecarWriter.readMappingArray(path);
+    }
+
+    /**
      * Returns all segment names that have any registered sidecars across all fields.
      * Used by {@link SidecarMergeListener} to detect orphaned segments after a merge.
      */

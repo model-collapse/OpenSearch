@@ -11,6 +11,7 @@ package org.opensearch.index.engine.sidecar;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FilterLeafReader;
 import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.PointValues;
 import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.StoredFields;
@@ -35,6 +36,34 @@ public class SidecarAwareLeafReader extends FilterLeafReader {
     private final Function<Integer, Map<String, Object>> sidecarProvider;
     private final Map<String, SidecarDocValuesProvider> dvProviders;
     private final Map<String, RemappingTermsProvider> termsProviders;
+    private final Map<String, SidecarVersionBitmap> fieldBitmaps;
+
+    /**
+     * Creates a new SidecarAwareLeafReader with DocValues providers, remapping terms providers,
+     * and per-field dirty bitmaps for PointValues filtering.
+     *
+     * @param in the delegate LeafReader
+     * @param sidecarProvider a function that takes a docId and returns the map of sidecar fields to overlay,
+     *                        or null/empty if the doc is clean
+     * @param dvProviders a map of field name to {@link SidecarDocValuesProvider} for fields that have
+     *                    sidecar DocValues
+     * @param termsProviders a map of field name to {@link RemappingTermsProvider} for fields that have
+     *                       sidecar inverted index postings
+     * @param fieldBitmaps a map of field name to {@link SidecarVersionBitmap} indicating which docs are dirty
+     */
+    public SidecarAwareLeafReader(
+        LeafReader in,
+        Function<Integer, Map<String, Object>> sidecarProvider,
+        Map<String, SidecarDocValuesProvider> dvProviders,
+        Map<String, RemappingTermsProvider> termsProviders,
+        Map<String, SidecarVersionBitmap> fieldBitmaps
+    ) {
+        super(in);
+        this.sidecarProvider = sidecarProvider;
+        this.dvProviders = dvProviders != null ? dvProviders : Map.of();
+        this.termsProviders = termsProviders != null ? termsProviders : Map.of();
+        this.fieldBitmaps = fieldBitmaps != null ? fieldBitmaps : Map.of();
+    }
 
     /**
      * Creates a new SidecarAwareLeafReader with DocValues providers and remapping terms providers.
@@ -53,10 +82,7 @@ public class SidecarAwareLeafReader extends FilterLeafReader {
         Map<String, SidecarDocValuesProvider> dvProviders,
         Map<String, RemappingTermsProvider> termsProviders
     ) {
-        super(in);
-        this.sidecarProvider = sidecarProvider;
-        this.dvProviders = dvProviders != null ? dvProviders : Map.of();
-        this.termsProviders = termsProviders != null ? termsProviders : Map.of();
+        this(in, sidecarProvider, dvProviders, termsProviders, Map.of());
     }
 
     /**
@@ -126,6 +152,18 @@ public class SidecarAwareLeafReader extends FilterLeafReader {
             }
         }
         return super.terms(field);
+    }
+
+    @Override
+    public PointValues getPointValues(String field) throws IOException {
+        SidecarVersionBitmap bitmap = fieldBitmaps.get(field);
+        if (bitmap != null && bitmap.cardinality() > 0) {
+            PointValues base = super.getPointValues(field);
+            if (base != null) {
+                return new FilteredPointValues(base, bitmap);
+            }
+        }
+        return super.getPointValues(field);
     }
 
     @Override

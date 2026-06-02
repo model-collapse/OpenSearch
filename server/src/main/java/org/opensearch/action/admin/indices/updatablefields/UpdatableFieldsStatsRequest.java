@@ -8,44 +8,24 @@
 
 package org.opensearch.action.admin.indices.updatablefields;
 
-import org.opensearch.action.ActionRequest;
-import org.opensearch.action.ActionRequestValidationException;
+import org.opensearch.action.support.broadcast.BroadcastRequest;
 import org.opensearch.core.common.io.stream.StreamInput;
-import org.opensearch.core.common.io.stream.StreamOutput;
 
 import java.io.IOException;
 
 /**
  * Request for retrieving per-field sidecar statistics for an index.
+ * Extends BroadcastRequest so the transport layer fans out to all nodes hosting shards.
  *
  * @opensearch.experimental
  */
-public class UpdatableFieldsStatsRequest extends ActionRequest {
-    private String index;
+public class UpdatableFieldsStatsRequest extends BroadcastRequest<UpdatableFieldsStatsRequest> {
 
-    public UpdatableFieldsStatsRequest() {}
-
-    public UpdatableFieldsStatsRequest(String index) {
-        this.index = index;
+    public UpdatableFieldsStatsRequest(String... indices) {
+        super(indices);
     }
 
     public UpdatableFieldsStatsRequest(StreamInput in) throws IOException {
         super(in);
-        this.index = in.readString();
-    }
-
-    @Override
-    public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
-        out.writeString(index);
-    }
-
-    @Override
-    public ActionRequestValidationException validate() {
-        return null;
-    }
-
-    public String index() {
-        return index;
     }
 }

@@ -10,10 +10,12 @@ package org.opensearch.rest.action.admin.indices;
 
 import org.opensearch.action.admin.indices.updatablefields.UpdatableFieldsStatsAction;
 import org.opensearch.action.admin.indices.updatablefields.UpdatableFieldsStatsRequest;
-import org.opensearch.transport.client.node.NodeClient;
+import org.opensearch.action.support.IndicesOptions;
+import org.opensearch.core.common.Strings;
 import org.opensearch.rest.BaseRestHandler;
 import org.opensearch.rest.RestRequest;
 import org.opensearch.rest.action.RestToXContentListener;
+import org.opensearch.transport.client.node.NodeClient;
 
 import java.io.IOException;
 import java.util.List;
@@ -39,8 +41,9 @@ public class RestUpdatableFieldsStatsAction extends BaseRestHandler {
 
     @Override
     protected RestChannelConsumer prepareRequest(RestRequest request, NodeClient client) throws IOException {
-        String index = request.param("index");
-        UpdatableFieldsStatsRequest statsRequest = new UpdatableFieldsStatsRequest(index);
+        String[] indices = Strings.splitStringByCommaToArray(request.param("index"));
+        UpdatableFieldsStatsRequest statsRequest = new UpdatableFieldsStatsRequest(indices);
+        statsRequest.indicesOptions(IndicesOptions.fromRequest(request, statsRequest.indicesOptions()));
         return channel -> client.execute(UpdatableFieldsStatsAction.INSTANCE, statsRequest, new RestToXContentListener<>(channel));
     }
 }

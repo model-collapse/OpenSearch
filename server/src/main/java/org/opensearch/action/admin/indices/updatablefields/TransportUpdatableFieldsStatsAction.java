@@ -9,108 +9,135 @@
 package org.opensearch.action.admin.indices.updatablefields;
 
 import org.opensearch.action.support.ActionFilters;
-import org.opensearch.action.support.HandledTransportAction;
-import org.opensearch.cluster.metadata.IndexMetadata;
-import org.opensearch.cluster.routing.IndexRoutingTable;
-import org.opensearch.cluster.routing.IndexShardRoutingTable;
+import org.opensearch.action.support.broadcast.node.TransportBroadcastByNodeAction;
+import org.opensearch.cluster.ClusterState;
+import org.opensearch.cluster.block.ClusterBlockException;
+import org.opensearch.cluster.block.ClusterBlockLevel;
+import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.routing.ShardRouting;
+import org.opensearch.cluster.routing.ShardsIterator;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.inject.Inject;
-import org.opensearch.core.action.ActionListener;
-import org.opensearch.index.IndexNotFoundException;
+import org.opensearch.core.action.support.DefaultShardOperationFailedException;
+import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.index.IndexService;
 import org.opensearch.index.engine.sidecar.SidecarRegistry;
 import org.opensearch.index.shard.IndexShard;
 import org.opensearch.indices.IndicesService;
-import org.opensearch.tasks.Task;
+import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.transport.TransportService;
 
+import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Transport action that aggregates per-field sidecar statistics across all shards of an index.
+ * Uses TransportBroadcastByNodeAction to fan out to all nodes hosting shards for the index.
  *
  * @opensearch.experimental
  */
-public class TransportUpdatableFieldsStatsAction extends HandledTransportAction<UpdatableFieldsStatsRequest, UpdatableFieldsStatsResponse> {
+public class TransportUpdatableFieldsStatsAction extends TransportBroadcastByNodeAction<
+    UpdatableFieldsStatsRequest,
+    UpdatableFieldsStatsResponse,
+    ShardUpdatableFieldsStats> {
 
     private final IndicesService indicesService;
-    private final ClusterService clusterService;
 
     @Inject
     public TransportUpdatableFieldsStatsAction(
+        ClusterService clusterService,
         TransportService transportService,
-        ActionFilters actionFilters,
         IndicesService indicesService,
-        ClusterService clusterService
+        ActionFilters actionFilters,
+        IndexNameExpressionResolver indexNameExpressionResolver
     ) {
-        super(UpdatableFieldsStatsAction.NAME, transportService, actionFilters, UpdatableFieldsStatsRequest::new);
+        super(
+            UpdatableFieldsStatsAction.NAME,
+            clusterService,
+            transportService,
+            actionFilters,
+            indexNameExpressionResolver,
+            UpdatableFieldsStatsRequest::new,
+            ThreadPool.Names.MANAGEMENT
+        );
         this.indicesService = indicesService;
-        this.clusterService = clusterService;
     }
 
     @Override
-    protected void doExecute(Task task, UpdatableFieldsStatsRequest request, ActionListener<UpdatableFieldsStatsResponse> listener) {
-        try {
-            String indexName = request.index();
-            IndexMetadata indexMetadata = clusterService.state().metadata().index(indexName);
-            if (indexMetadata == null) {
-                listener.onFailure(new IndexNotFoundException(indexName));
-                return;
+    protected ShardsIterator shards(ClusterState clusterState, UpdatableFieldsStatsRequest request, String[] concreteIndices) {
+        return clusterState.routingTable().allShards(concreteIndices);
+    }
+
+    @Override
+    protected ClusterBlockException checkGlobalBlock(ClusterState state, UpdatableFieldsStatsRequest request) {
+        return state.blocks().globalBlockedException(ClusterBlockLevel.METADATA_READ);
+    }
+
+    @Override
+    protected ClusterBlockException checkRequestBlock(
+        ClusterState state,
+        UpdatableFieldsStatsRequest request,
+        String[] concreteIndices
+    ) {
+        return state.blocks().indicesBlockedException(ClusterBlockLevel.METADATA_READ, concreteIndices);
+    }
+
+    @Override
+    protected ShardUpdatableFieldsStats readShardResult(StreamInput in) throws IOException {
+        return new ShardUpdatableFieldsStats(in);
+    }
+
+    @Override
+    protected UpdatableFieldsStatsResponse newResponse(
+        UpdatableFieldsStatsRequest request,
+        int totalShards,
+        int successfulShards,
+        int failedShards,
+        List<ShardUpdatableFieldsStats> shardResults,
+        List<DefaultShardOperationFailedException> shardFailures,
+        ClusterState clusterState
+    ) {
+        // Aggregate per-field stats across all shards
+        Map<String, long[]> aggregated = new HashMap<>();
+        for (ShardUpdatableFieldsStats shardStats : shardResults) {
+            for (Map.Entry<String, long[]> entry : shardStats.fieldStats().entrySet()) {
+                long[] agg = aggregated.computeIfAbsent(entry.getKey(), k -> new long[2]);
+                agg[0] += entry.getValue()[0]; // dirtyDocCount
+                agg[1] += entry.getValue()[1]; // segmentCount
             }
-
-            // Determine total active shard copies from the routing table
-            int totalShards = 0;
-            IndexRoutingTable routingTable = clusterService.state().routingTable().index(indexName);
-            if (routingTable != null) {
-                for (Map.Entry<Integer, IndexShardRoutingTable> entry : routingTable.shards().entrySet()) {
-                    IndexShardRoutingTable shardTable = entry.getValue();
-                    for (ShardRouting routing : shardTable.shards()) {
-                        if (routing.active()) {
-                            totalShards++;
-                        }
-                    }
-                }
-            }
-
-            IndexService indexService = indicesService.indexService(indexMetadata.getIndex());
-            if (indexService == null) {
-                listener.onResponse(new UpdatableFieldsStatsResponse(Map.of(), totalShards, 0));
-                return;
-            }
-
-            // Aggregate stats across local shards only
-            // field -> [generations, docsUpdated, segmentsWithSidecars]
-            Map<String, long[]> aggregated = new HashMap<>();
-            int localShardsQueried = 0;
-
-            for (IndexShard shard : indexService) {
-                localShardsQueried++;
-                SidecarRegistry registry = shard.sidecarRegistry();
-                if (registry == null || !registry.hasAnySidecars()) {
-                    continue;
-                }
-
-                for (String field : registry.getUpdatableFields()) {
-                    long[] stats = aggregated.computeIfAbsent(field, k -> new long[3]);
-                    // stats[0] = max generations (reserved for future use)
-                    // stats[1] = total dirty docs across all segments
-                    // stats[2] = total segments with sidecars
-                    stats[1] += registry.getDirtyDocCount(field);
-                    stats[2] += registry.getSegmentCount(field);
-                }
-            }
-
-            Map<String, UpdatableFieldsStatsResponse.FieldStats> result = new HashMap<>();
-            for (Map.Entry<String, long[]> entry : aggregated.entrySet()) {
-                long[] s = entry.getValue();
-                result.put(entry.getKey(), new UpdatableFieldsStatsResponse.FieldStats((int) s[0], s[1], (int) s[2]));
-            }
-
-            listener.onResponse(new UpdatableFieldsStatsResponse(result, totalShards, localShardsQueried));
-        } catch (Exception e) {
-            listener.onFailure(e);
         }
+
+        Map<String, UpdatableFieldsStatsResponse.FieldStats> result = new HashMap<>();
+        for (Map.Entry<String, long[]> entry : aggregated.entrySet()) {
+            long[] s = entry.getValue();
+            result.put(entry.getKey(), new UpdatableFieldsStatsResponse.FieldStats(s[0], (int) s[1]));
+        }
+
+        return new UpdatableFieldsStatsResponse(result, totalShards, successfulShards, failedShards, shardFailures);
+    }
+
+    @Override
+    protected UpdatableFieldsStatsRequest readRequestFrom(StreamInput in) throws IOException {
+        return new UpdatableFieldsStatsRequest(in);
+    }
+
+    @Override
+    protected ShardUpdatableFieldsStats shardOperation(UpdatableFieldsStatsRequest request, ShardRouting shardRouting) {
+        IndexService indexService = indicesService.indexServiceSafe(shardRouting.shardId().getIndex());
+        IndexShard indexShard = indexService.getShard(shardRouting.shardId().id());
+
+        Map<String, long[]> fieldStats = new HashMap<>();
+        SidecarRegistry registry = indexShard.sidecarRegistry();
+        if (registry != null && registry.hasAnySidecars()) {
+            for (String field : registry.getUpdatableFields()) {
+                long dirtyDocs = registry.getDirtyDocCount(field);
+                int segmentCount = registry.getSegmentCount(field);
+                fieldStats.put(field, new long[] { dirtyDocs, segmentCount });
+            }
+        }
+
+        return new ShardUpdatableFieldsStats(fieldStats);
     }
 }

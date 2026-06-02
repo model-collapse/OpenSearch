@@ -20,9 +20,15 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -43,6 +49,7 @@ public class InvertedIndexSidecarWriter implements SidecarWriter<String> {
     private final FieldType fieldType;
     private final Directory luceneDir;
     private final IndexWriter writer;
+    private final List<Map.Entry<Integer, String>> pending = new ArrayList<>();
     private SidecarVersionBitmap bitmap;
     private int docsWritten = 0;
 
@@ -87,11 +94,7 @@ public class InvertedIndexSidecarWriter implements SidecarWriter<String> {
             throw new IllegalArgumentException("text must not be null");
         }
 
-        Document doc = new Document();
-        doc.add(new Field(fieldName, text, fieldType));
-        doc.add(new StoredField(DOC_ID_FIELD, docId));
-        writer.addDocument(doc);
-
+        pending.add(Map.entry(docId, text));
         bitmap = bitmap.growTo(docId + 1);
         bitmap.set(docId);
         docsWritten++;
@@ -102,7 +105,23 @@ public class InvertedIndexSidecarWriter implements SidecarWriter<String> {
         if (docsWritten == 0) {
             return null;
         }
+
+        // Sort by base doc-ID for monotonic mapping
+        pending.sort(Comparator.comparingInt(Map.Entry::getKey));
+
+        // Build sidecar-to-base mapping array and write documents in sorted order
+        int[] sidecarToBase = new int[pending.size()];
+        for (int i = 0; i < pending.size(); i++) {
+            sidecarToBase[i] = pending.get(i).getKey();
+            Document doc = new Document();
+            doc.add(new Field(fieldName, pending.get(i).getValue(), fieldType));
+            doc.add(new StoredField(DOC_ID_FIELD, pending.get(i).getKey()));
+            writer.addDocument(doc);
+        }
         writer.commit();
+
+        // Persist the mapping array alongside the segment
+        writeMappingArray(sidecarToBase);
 
         Set<String> files = new HashSet<>();
         for (String f : luceneDir.listAll()) {
@@ -111,6 +130,39 @@ public class InvertedIndexSidecarWriter implements SidecarWriter<String> {
             }
         }
         return new SidecarWriteResult(directory.toString(), generation, files, docsWritten, bitmap);
+    }
+
+    private void writeMappingArray(int[] mapping) throws IOException {
+        Path mappingFile = directory.resolve("_sidecar_to_base.map");
+        try (var out = Files.newOutputStream(mappingFile)) {
+            ByteBuffer buf = ByteBuffer.allocate(4 + mapping.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+            buf.putInt(mapping.length);
+            for (int id : mapping) {
+                buf.putInt(id);
+            }
+            out.write(buf.array());
+        }
+    }
+
+    /**
+     * Reads the sidecar-to-base doc-ID mapping array from a sidecar directory.
+     *
+     * @param sidecarDir the path to the sidecar directory
+     * @return the mapping array, or null if no mapping file exists
+     */
+    public static int[] readMappingArray(Path sidecarDir) throws IOException {
+        Path mappingFile = sidecarDir.resolve("_sidecar_to_base.map");
+        if (!Files.exists(mappingFile)) {
+            return null;
+        }
+        byte[] data = Files.readAllBytes(mappingFile);
+        ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+        int len = buf.getInt();
+        int[] mapping = new int[len];
+        for (int i = 0; i < len; i++) {
+            mapping[i] = buf.getInt();
+        }
+        return mapping;
     }
 
     @Override
